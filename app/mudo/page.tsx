@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Fatura = {
   id: number;
@@ -31,66 +31,117 @@ export default function Mudo() {
   const [odemeTutari, setOdemeTutari] = useState("");
   const [odemeAciklama, setOdemeAciklama] = useState("");
 
+  const [arama, setArama] = useState("");
+
   useEffect(() => {
-    const eskiFaturalar = localStorage.getItem("aristo-mudo-faturalar");
-    const eskiOdemeler = localStorage.getItem("aristo-mudo-odemeler");
+    try {
+      const eskiFaturalar: Fatura[] = JSON.parse(
+        localStorage.getItem("aristo-mudo-faturalar") || "[]"
+      );
 
-    if (eskiFaturalar) {
-      setFaturalar(JSON.parse(eskiFaturalar));
-    }
+      const eskiOdemeler: Odeme[] = JSON.parse(
+        localStorage.getItem("aristo-mudo-odemeler") || "[]"
+      );
 
-    if (eskiOdemeler) {
-      setOdemeler(JSON.parse(eskiOdemeler));
+      setFaturalar(Array.isArray(eskiFaturalar) ? eskiFaturalar : []);
+      setOdemeler(Array.isArray(eskiOdemeler) ? eskiOdemeler : []);
+    } catch {
+      setFaturalar([]);
+      setOdemeler([]);
     }
   }, []);
 
+  function faturalariKaydet(yeniListe: Fatura[]) {
+    setFaturalar(yeniListe);
+
+    localStorage.setItem(
+      "aristo-mudo-faturalar",
+      JSON.stringify(yeniListe)
+    );
+  }
+
+  function odemeleriKaydet(yeniListe: Odeme[]) {
+    setOdemeler(yeniListe);
+
+    localStorage.setItem(
+      "aristo-mudo-odemeler",
+      JSON.stringify(yeniListe)
+    );
+  }
+
   const toplamFatura = faturalar.reduce(
-    (toplam, fatura) => toplam + fatura.tutar,
+    (toplam, fatura) => toplam + Number(fatura.tutar || 0),
     0
   );
 
   const toplamOdeme = odemeler.reduce(
-    (toplam, odeme) => toplam + odeme.tutar,
+    (toplam, odeme) => toplam + Number(odeme.tutar || 0),
     0
   );
 
   const kalanBakiye = toplamFatura - toplamOdeme;
 
+  const buAy = new Date();
+
+  const buAyFatura = faturalar
+    .filter((fatura) => {
+      const tarih = new Date(`${fatura.tarih}T00:00:00`);
+
+      return (
+        tarih.getMonth() === buAy.getMonth() &&
+        tarih.getFullYear() === buAy.getFullYear()
+      );
+    })
+    .reduce(
+      (toplam, fatura) => toplam + Number(fatura.tutar || 0),
+      0
+    );
+
+  const buAyOdeme = odemeler
+    .filter((odeme) => {
+      const tarih = new Date(`${odeme.tarih}T00:00:00`);
+
+      return (
+        tarih.getMonth() === buAy.getMonth() &&
+        tarih.getFullYear() === buAy.getFullYear()
+      );
+    })
+    .reduce(
+      (toplam, odeme) => toplam + Number(odeme.tutar || 0),
+      0
+    );
+
   function faturaKaydet() {
     const tutar = Number(faturaTutari);
 
-    if (!faturaTarihi || tutar <= 0) {
-      alert("Fatura tarihi ve tutarını gir.");
+    if (!faturaTarihi || !Number.isFinite(tutar) || tutar <= 0) {
+      alert("Fatura tarihi ve geçerli tutar gir.");
       return;
     }
 
     const yeniFatura: Fatura = {
       id: Date.now(),
       tarih: faturaTarihi,
-      faturaNo,
+      faturaNo: faturaNo.trim(),
       tutar,
-      aciklama: faturaAciklama,
+      aciklama: faturaAciklama.trim(),
     };
 
-    const yeniFaturalar = [yeniFatura, ...faturalar];
-
-    setFaturalar(yeniFaturalar);
-    localStorage.setItem(
-      "aristo-mudo-faturalar",
-      JSON.stringify(yeniFaturalar)
-    );
+    faturalariKaydet([yeniFatura, ...faturalar]);
 
     setFaturaTarihi("");
     setFaturaNo("");
     setFaturaTutari("");
     setFaturaAciklama("");
+
+    alert("Fatura kaydedildi.");
   }
 
   function odemeKaydet() {
     const tutar = Number(odemeTutari);
 
-    if (!odemeTarihi || tutar <= 0) {
-      alert("Ödeme tarihi ve tutarını gir.");
+    if (!odemeTarihi || !Number.isFinite(tutar) || tutar <= 0) {
+      alert("Ödeme tarihi ve geçerli tutar gir.");
       return;
     }
 
@@ -98,41 +149,94 @@ export default function Mudo() {
       id: Date.now(),
       tarih: odemeTarihi,
       tutar,
-      aciklama: odemeAciklama,
+      aciklama: odemeAciklama.trim(),
     };
 
-    const yeniOdemeler = [yeniOdeme, ...odemeler];
-
-    setOdemeler(yeniOdemeler);
-    localStorage.setItem(
-      "aristo-mudo-odemeler",
-      JSON.stringify(yeniOdemeler)
-    );
+    odemeleriKaydet([yeniOdeme, ...odemeler]);
 
     setOdemeTarihi("");
     setOdemeTutari("");
     setOdemeAciklama("");
+
+    alert("Ödeme kaydedildi.");
   }
 
   function faturaSil(id: number) {
-    const yeniFaturalar = faturalar.filter((fatura) => fatura.id !== id);
+    const onay = window.confirm("Bu fatura silinsin mi?");
 
-    setFaturalar(yeniFaturalar);
-    localStorage.setItem(
-      "aristo-mudo-faturalar",
-      JSON.stringify(yeniFaturalar)
+    if (!onay) return;
+
+    faturalariKaydet(
+      faturalar.filter((fatura) => fatura.id !== id)
     );
   }
 
   function odemeSil(id: number) {
-    const yeniOdemeler = odemeler.filter((odeme) => odeme.id !== id);
+    const onay = window.confirm("Bu ödeme silinsin mi?");
 
-    setOdemeler(yeniOdemeler);
-    localStorage.setItem(
-      "aristo-mudo-odemeler",
-      JSON.stringify(yeniOdemeler)
+    if (!onay) return;
+
+    odemeleriKaydet(
+      odemeler.filter((odeme) => odeme.id !== id)
     );
   }
+
+  const filtreliFaturalar = useMemo(() => {
+    const aranan = arama.trim().toLocaleLowerCase("tr-TR");
+
+    if (!aranan) {
+      return faturalar;
+    }
+
+    return faturalar.filter((fatura) => {
+      const metin =
+        `${fatura.faturaNo} ${fatura.aciklama}`.toLocaleLowerCase(
+          "tr-TR"
+        );
+
+      return metin.includes(aranan);
+    });
+  }, [faturalar, arama]);
+
+  const filtreliOdemeler = useMemo(() => {
+    const aranan = arama.trim().toLocaleLowerCase("tr-TR");
+
+    if (!aranan) {
+      return odemeler;
+    }
+
+    return odemeler.filter((odeme) =>
+      odeme.aciklama
+        .toLocaleLowerCase("tr-TR")
+        .includes(aranan)
+    );
+  }, [odemeler, arama]);
+
+  const hareketler = useMemo(() => {
+    const faturaHareketleri = faturalar.map((fatura) => ({
+      id: `fatura-${fatura.id}`,
+      tarih: fatura.tarih,
+      tip: "Fatura",
+      aciklama: fatura.faturaNo || fatura.aciklama || "Fatura",
+      tutar: fatura.tutar,
+    }));
+
+    const odemeHareketleri = odemeler.map((odeme) => ({
+      id: `odeme-${odeme.id}`,
+      tarih: odeme.tarih,
+      tip: "Ödeme",
+      aciklama: odeme.aciklama || "Ödeme",
+      tutar: odeme.tutar,
+    }));
+
+    return [...faturaHareketleri, ...odemeHareketleri]
+      .sort(
+        (a, b) =>
+          new Date(b.tarih).getTime() -
+          new Date(a.tarih).getTime()
+      )
+      .slice(0, 8);
+  }, [faturalar, odemeler]);
 
   const para = (tutar: number) =>
     new Intl.NumberFormat("tr-TR", {
@@ -140,155 +244,500 @@ export default function Mudo() {
       currency: "TRY",
     }).format(tutar);
 
+  const kartStili = {
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "18px",
+    padding: "20px",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
+  };
+
+  const alanStili = {
+    width: "100%",
+    padding: "12px",
+    boxSizing: "border-box" as const,
+    border: "1px solid #d1d5db",
+    borderRadius: "10px",
+    background: "#ffffff",
+    fontSize: "15px",
+  };
+
+  const yesilButon = {
+    border: "none",
+    borderRadius: "10px",
+    padding: "13px 18px",
+    background: "#174d38",
+    color: "#ffffff",
+    fontWeight: "bold",
+    cursor: "pointer",
+  };
+
+  const kirmiziButon = {
+    border: "none",
+    borderRadius: "9px",
+    padding: "9px 12px",
+    background: "#b91c1c",
+    color: "#ffffff",
+    fontWeight: "bold",
+    cursor: "pointer",
+  };
+
   return (
     <main
       style={{
-        maxWidth: "900px",
-        margin: "40px auto",
-        padding: "20px",
+        minHeight: "100vh",
+        background: "#f4f7f5",
+        padding: "30px 18px",
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <Link href="/">← Ana Sayfaya Dön</Link>
+      <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
+        <Link href="/">← Ana Sayfaya Dön</Link>
 
-      <h1>🏢 Mudo Toptan Cari Hesabı</h1>
+        <h1 style={{ marginBottom: "6px" }}>
+          🏢 Mudo Toptan Cari Hesabı
+        </h1>
 
-      <div
-        style={{
-          border: "1px solid #ccc",
-          borderRadius: "12px",
-          padding: "20px",
-          marginBottom: "30px",
-        }}
-      >
-        <p>Toplam Fatura: {para(toplamFatura)}</p>
-        <p>Toplam Ödeme: {para(toplamOdeme)}</p>
-        <h2>Kalan Bakiye: {para(kalanBakiye)}</h2>
+        <p
+          style={{
+            marginTop: 0,
+            marginBottom: "24px",
+            color: "#6b7280",
+          }}
+        >
+          Fatura, ödeme ve cari bakiyeyi takip et.
+        </p>
+
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(190px, 1fr))",
+            gap: "14px",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Toplam fatura
+            </small>
+
+            <h2 style={{ marginBottom: 0 }}>
+              {para(toplamFatura)}
+            </h2>
+          </div>
+
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Toplam ödeme
+            </small>
+
+            <h2
+              style={{
+                marginBottom: 0,
+                color: "#15803d",
+              }}
+            >
+              {para(toplamOdeme)}
+            </h2>
+          </div>
+
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Kalan bakiye
+            </small>
+
+            <h2
+              style={{
+                marginBottom: 0,
+                color:
+                  kalanBakiye > 0 ? "#b91c1c" : "#15803d",
+              }}
+            >
+              {para(kalanBakiye)}
+            </h2>
+          </div>
+
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Bu ay fatura / ödeme
+            </small>
+
+            <h2 style={{ marginBottom: 0 }}>
+              {para(buAyFatura)} / {para(buAyOdeme)}
+            </h2>
+          </div>
+        </section>
+
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(320px, 1fr))",
+            gap: "18px",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              📄 Yeni Fatura
+            </h2>
+
+            <label>
+              <strong>Fatura Tarihi</strong>
+            </label>
+
+            <input
+              type="date"
+              value={faturaTarihi}
+              onChange={(event) =>
+                setFaturaTarihi(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
+
+            <label>
+              <strong>Fatura Numarası</strong>
+            </label>
+
+            <input
+              type="text"
+              placeholder="Fatura numarası"
+              value={faturaNo}
+              onChange={(event) =>
+                setFaturaNo(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
+
+            <label>
+              <strong>Fatura Tutarı</strong>
+            </label>
+
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0"
+              value={faturaTutari}
+              onChange={(event) =>
+                setFaturaTutari(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
+
+            <label>
+              <strong>Açıklama</strong>
+            </label>
+
+            <textarea
+              placeholder="Açıklama"
+              value={faturaAciklama}
+              onChange={(event) =>
+                setFaturaAciklama(event.target.value)
+              }
+              rows={3}
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "16px",
+                resize: "vertical",
+              }}
+            />
+
+            <button
+              onClick={faturaKaydet}
+              style={yesilButon}
+            >
+              💾 Faturayı Kaydet
+            </button>
+          </div>
+
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              💳 Yeni Ödeme
+            </h2>
+
+            <label>
+              <strong>Ödeme Tarihi</strong>
+            </label>
+
+            <input
+              type="date"
+              value={odemeTarihi}
+              onChange={(event) =>
+                setOdemeTarihi(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
+
+            <label>
+              <strong>Ödeme Tutarı</strong>
+            </label>
+
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0"
+              value={odemeTutari}
+              onChange={(event) =>
+                setOdemeTutari(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
+
+            <label>
+              <strong>Açıklama</strong>
+            </label>
+
+            <textarea
+              placeholder="Açıklama"
+              value={odemeAciklama}
+              onChange={(event) =>
+                setOdemeAciklama(event.target.value)
+              }
+              rows={3}
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "16px",
+                resize: "vertical",
+              }}
+            />
+
+            <button
+              onClick={odemeKaydet}
+              style={yesilButon}
+            >
+              💾 Ödemeyi Kaydet
+            </button>
+          </div>
+        </section>
+
+        <section
+          style={{
+            ...kartStili,
+            marginBottom: "24px",
+          }}
+        >
+          <label>
+            <strong>Fatura veya açıklama ara</strong>
+          </label>
+
+          <input
+            type="text"
+            value={arama}
+            onChange={(event) =>
+              setArama(event.target.value)
+            }
+            placeholder="Örneğin: Ağustos"
+            style={{
+              ...alanStili,
+              marginTop: "7px",
+            }}
+          />
+        </section>
+
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(320px, 1fr))",
+            gap: "18px",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              📄 Faturalar
+            </h2>
+
+            {filtreliFaturalar.length === 0 ? (
+              <p style={{ color: "#6b7280" }}>
+                Fatura bulunamadı.
+              </p>
+            ) : (
+              filtreliFaturalar.map((fatura) => (
+                <div
+                  key={fatura.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "minmax(160px, 1fr) auto",
+                    gap: "14px",
+                    borderBottom:
+                      "1px solid #e5e7eb",
+                    padding: "14px 0",
+                  }}
+                >
+                  <div>
+                    <strong>{fatura.tarih}</strong>
+
+                    <p
+                      style={{
+                        margin: "6px 0",
+                        color: "#6b7280",
+                      }}
+                    >
+                      No: {fatura.faturaNo || "-"}
+                    </p>
+
+                    <p style={{ margin: 0 }}>
+                      {fatura.aciklama || "Açıklama yok"}
+                    </p>
+                  </div>
+
+                  <div style={{ textAlign: "right" }}>
+                    <strong
+                      style={{
+                        display: "block",
+                        color: "#b91c1c",
+                        marginBottom: "10px",
+                      }}
+                    >
+                      {para(fatura.tutar)}
+                    </strong>
+
+                    <button
+                      onClick={() => faturaSil(fatura.id)}
+                      style={kirmiziButon}
+                    >
+                      🗑️ Sil
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              💳 Ödemeler
+            </h2>
+
+            {filtreliOdemeler.length === 0 ? (
+              <p style={{ color: "#6b7280" }}>
+                Ödeme bulunamadı.
+              </p>
+            ) : (
+              filtreliOdemeler.map((odeme) => (
+                <div
+                  key={odeme.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "minmax(160px, 1fr) auto",
+                    gap: "14px",
+                    borderBottom:
+                      "1px solid #e5e7eb",
+                    padding: "14px 0",
+                  }}
+                >
+                  <div>
+                    <strong>{odeme.tarih}</strong>
+
+                    <p
+                      style={{
+                        margin: "6px 0 0",
+                        color: "#6b7280",
+                      }}
+                    >
+                      {odeme.aciklama || "Açıklama yok"}
+                    </p>
+                  </div>
+
+                  <div style={{ textAlign: "right" }}>
+                    <strong
+                      style={{
+                        display: "block",
+                        color: "#15803d",
+                        marginBottom: "10px",
+                      }}
+                    >
+                      {para(odeme.tutar)}
+                    </strong>
+
+                    <button
+                      onClick={() => odemeSil(odeme.id)}
+                      style={kirmiziButon}
+                    >
+                      🗑️ Sil
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section style={kartStili}>
+          <h2 style={{ marginTop: 0 }}>
+            🧾 Son Hareketler
+          </h2>
+
+          {hareketler.length === 0 ? (
+            <p style={{ color: "#6b7280" }}>
+              Henüz hareket yok.
+            </p>
+          ) : (
+            hareketler.map((hareket) => (
+              <div
+                key={hareket.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "16px",
+                  borderBottom: "1px solid #e5e7eb",
+                  padding: "12px 0",
+                }}
+              >
+                <div>
+                  <strong>{hareket.tip}</strong>
+
+                  <br />
+
+                  <small style={{ color: "#6b7280" }}>
+                    {hareket.tarih} — {hareket.aciklama}
+                  </small>
+                </div>
+
+                <strong
+                  style={{
+                    color:
+                      hareket.tip === "Fatura"
+                        ? "#b91c1c"
+                        : "#15803d",
+                  }}
+                >
+                  {hareket.tip === "Fatura" ? "-" : "+"}
+                  {para(hareket.tutar)}
+                </strong>
+              </div>
+            ))
+          )}
+        </section>
       </div>
-
-      <h2>📄 Yeni Fatura</h2>
-
-      <input
-        type="date"
-        value={faturaTarihi}
-        onChange={(event) => setFaturaTarihi(event.target.value)}
-      />
-
-      <br />
-      <br />
-
-      <input
-        type="text"
-        placeholder="Fatura numarası"
-        value={faturaNo}
-        onChange={(event) => setFaturaNo(event.target.value)}
-      />
-
-      <br />
-      <br />
-
-      <input
-        type="number"
-        placeholder="Fatura tutarı"
-        value={faturaTutari}
-        onChange={(event) => setFaturaTutari(event.target.value)}
-      />
-
-      <br />
-      <br />
-
-      <input
-        type="text"
-        placeholder="Açıklama"
-        value={faturaAciklama}
-        onChange={(event) => setFaturaAciklama(event.target.value)}
-      />
-
-      <br />
-      <br />
-
-      <button onClick={faturaKaydet}>💾 Faturayı Kaydet</button>
-
-      <hr />
-
-      <h2>💳 Yeni Ödeme</h2>
-
-      <input
-        type="date"
-        value={odemeTarihi}
-        onChange={(event) => setOdemeTarihi(event.target.value)}
-      />
-
-      <br />
-      <br />
-
-      <input
-        type="number"
-        placeholder="Ödeme tutarı"
-        value={odemeTutari}
-        onChange={(event) => setOdemeTutari(event.target.value)}
-      />
-
-      <br />
-      <br />
-
-      <input
-        type="text"
-        placeholder="Açıklama"
-        value={odemeAciklama}
-        onChange={(event) => setOdemeAciklama(event.target.value)}
-      />
-
-      <br />
-      <br />
-
-      <button onClick={odemeKaydet}>💾 Ödemeyi Kaydet</button>
-
-      <hr />
-
-      <h2>📄 Faturalar</h2>
-
-      {faturalar.length === 0 ? (
-        <p>Henüz fatura yok.</p>
-      ) : (
-        <ul>
-          {faturalar.map((fatura) => (
-            <li key={fatura.id} style={{ marginBottom: "18px" }}>
-              <strong>{fatura.tarih}</strong>
-              <br />
-              No: {fatura.faturaNo || "-"}
-              <br />
-              Tutar: {para(fatura.tutar)}
-              <br />
-              Açıklama: {fatura.aciklama || "-"}
-              <br />
-              <button onClick={() => faturaSil(fatura.id)}>🗑️ Sil</button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <hr />
-
-      <h2>💳 Ödemeler</h2>
-
-      {odemeler.length === 0 ? (
-        <p>Henüz ödeme yok.</p>
-      ) : (
-        <ul>
-          {odemeler.map((odeme) => (
-            <li key={odeme.id} style={{ marginBottom: "18px" }}>
-              <strong>{odeme.tarih}</strong>
-              <br />
-              Tutar: {para(odeme.tutar)}
-              <br />
-              Açıklama: {odeme.aciklama || "-"}
-              <br />
-              <button onClick={() => odemeSil(odeme.id)}>🗑️ Sil</button>
-            </li>
-          ))}
-        </ul>
-      )}
     </main>
   );
 }
