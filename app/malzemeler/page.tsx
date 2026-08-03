@@ -10,12 +10,14 @@ import {
 export default function Malzemeler() {
   const [malzemeler, setMalzemeler] = useState<Malzeme[]>([]);
   const [arama, setArama] = useState("");
-  const [alan, setAlan] = useState<"Tümü" | "Sandviç" | "Salata">(
-    "Tümü"
-  );
+  const [alan, setAlan] = useState<
+    "Tümü" | "Sandviç" | "Salata"
+  >("Tümü");
 
   useEffect(() => {
-    const kayitliVeri = localStorage.getItem("aristo-malzemeler");
+    const kayitliVeri = localStorage.getItem(
+      "aristo-malzemeler"
+    );
 
     if (!kayitliVeri) {
       setMalzemeler(varsayilanMalzemeler);
@@ -28,14 +30,16 @@ export default function Malzemeler() {
       return;
     }
 
-    const eskiMalzemeler: Malzeme[] = JSON.parse(kayitliVeri);
+    const eskiMalzemeler: Malzeme[] =
+      JSON.parse(kayitliVeri);
 
-    const birlestirilmisMalzemeler = varsayilanMalzemeler.map(
-      (varsayilan) => {
+    const birlestirilmisMalzemeler =
+      varsayilanMalzemeler.map((varsayilan) => {
         const eski = eskiMalzemeler.find(
           (kayit) =>
             kayit.ad === varsayilan.ad &&
-            kayit.kullanimAlani === varsayilan.kullanimAlani
+            kayit.kullanimAlani ===
+              varsayilan.kullanimAlani
         );
 
         if (!eski) {
@@ -44,12 +48,19 @@ export default function Malzemeler() {
 
         return {
           ...varsayilan,
-          gramaj: eski.gramaj,
-          birimFiyat: eski.birimFiyat,
-          kalori100Gr: eski.kalori100Gr,
+          gramaj: Number(
+            eski.gramaj ?? varsayilan.gramaj
+          ),
+          birimFiyat: Number(
+            eski.birimFiyat ??
+              varsayilan.birimFiyat
+          ),
+          kalori100Gr: Number(
+            eski.kalori100Gr ??
+              varsayilan.kalori100Gr
+          ),
         };
-      }
-    );
+      });
 
     setMalzemeler(birlestirilmisMalzemeler);
 
@@ -59,26 +70,34 @@ export default function Malzemeler() {
     );
   }, []);
 
-  function guncelle(
-    id: number,
-    alanAdi: "gramaj" | "birimFiyat" | "kalori100Gr",
-    deger: number
-  ) {
-    const yeniListe = malzemeler.map((malzeme) =>
-      malzeme.id === id
-        ? {
-            ...malzeme,
-            [alanAdi]: deger,
-          }
-        : malzeme
-    );
-
+  function kaydet(yeniListe: Malzeme[]) {
     setMalzemeler(yeniListe);
 
     localStorage.setItem(
       "aristo-malzemeler",
       JSON.stringify(yeniListe)
     );
+  }
+
+  function guncelle(
+    id: number,
+    alanAdi:
+      | "gramaj"
+      | "birimFiyat"
+      | "kalori100Gr",
+    deger: number
+  ) {
+    const yeniListe = malzemeler.map(
+      (malzeme) =>
+        malzeme.id === id
+          ? {
+              ...malzeme,
+              [alanAdi]: Math.max(deger, 0),
+            }
+          : malzeme
+    );
+
+    kaydet(yeniListe);
   }
 
   function varsayilanaDon() {
@@ -88,28 +107,52 @@ export default function Malzemeler() {
 
     if (!onay) return;
 
-    setMalzemeler(varsayilanMalzemeler);
-
-    localStorage.setItem(
-      "aristo-malzemeler",
-      JSON.stringify(varsayilanMalzemeler)
-    );
+    kaydet(varsayilanMalzemeler);
   }
 
   const filtrelenmisMalzemeler = useMemo(() => {
-    const aranan = arama.trim().toLocaleLowerCase("tr-TR");
+    const aranan = arama
+      .trim()
+      .toLocaleLowerCase("tr-TR");
 
     return malzemeler.filter((malzeme) => {
       const alanUygun =
-        alan === "Tümü" || malzeme.kullanimAlani === alan;
+        alan === "Tümü" ||
+        malzeme.kullanimAlani === alan;
 
       const aramaUygun =
         !aranan ||
-        malzeme.ad.toLocaleLowerCase("tr-TR").includes(aranan);
+        malzeme.ad
+          .toLocaleLowerCase("tr-TR")
+          .includes(aranan);
 
       return alanUygun && aramaUygun;
     });
   }, [malzemeler, arama, alan]);
+
+  const toplamMalzeme = malzemeler.length;
+
+  const fiyatGirilenMalzeme = malzemeler.filter(
+    (malzeme) =>
+      Number(malzeme.birimFiyat || 0) > 0
+  ).length;
+
+  const kaloriGirilenMalzeme = malzemeler.filter(
+    (malzeme) =>
+      Number(malzeme.kalori100Gr || 0) > 0
+  ).length;
+
+  const ortalamaPorsiyonMaliyeti =
+    malzemeler.length > 0
+      ? malzemeler.reduce(
+          (toplam, malzeme) =>
+            toplam +
+            (Number(malzeme.birimFiyat || 0) /
+              1000) *
+              Number(malzeme.gramaj || 0),
+          0
+        ) / malzemeler.length
+      : 0;
 
   const para = (tutar: number) =>
     new Intl.NumberFormat("tr-TR", {
@@ -117,170 +160,437 @@ export default function Malzemeler() {
       currency: "TRY",
     }).format(tutar);
 
+  const kartStili = {
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "18px",
+    padding: "20px",
+    boxShadow:
+      "0 8px 20px rgba(0,0,0,0.06)",
+  };
+
+  const alanStili = {
+    width: "100%",
+    padding: "11px",
+    border: "1px solid #d1d5db",
+    borderRadius: "10px",
+    boxSizing: "border-box" as const,
+    background: "#ffffff",
+  };
+
   return (
     <main
       style={{
-        maxWidth: "1150px",
-        margin: "40px auto",
-        padding: "20px",
+        minHeight: "100vh",
+        background: "#f4f7f5",
+        padding: "30px 18px",
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <Link href="/">← Ana Sayfaya Dön</Link>
-
-      <h1>🥬 Malzemeler</h1>
-
-      <label>Malzeme Ara</label>
-      <br />
-
-      <input
-        value={arama}
-        onChange={(event) => setArama(event.target.value)}
-        placeholder="Örneğin: Rozbif"
+      <div
         style={{
-          width: "100%",
-          maxWidth: "400px",
-          padding: "10px",
-          boxSizing: "border-box",
+          maxWidth: "1200px",
+          margin: "0 auto",
         }}
-      />
-
-      <br />
-      <br />
-
-      <label>Kullanım Alanı</label>
-      <br />
-
-      <select
-        value={alan}
-        onChange={(event) =>
-          setAlan(
-            event.target.value as "Tümü" | "Sandviç" | "Salata"
-          )
-        }
       >
-        <option>Tümü</option>
-        <option>Sandviç</option>
-        <option>Salata</option>
-      </select>
+        <Link href="/">
+          ← Ana Sayfaya Dön
+        </Link>
 
-      <br />
-      <br />
+        <h1 style={{ marginBottom: "6px" }}>
+          🥬 Malzemeler
+        </h1>
 
-      <button onClick={varsayilanaDon}>
-        ↩️ Bütün Bilgileri Sıfırla
-      </button>
-
-      <hr style={{ margin: "30px 0" }} />
-
-      <div style={{ overflowX: "auto" }}>
-        <table
+        <p
           style={{
-            width: "100%",
-            borderCollapse: "collapse",
-            minWidth: "900px",
+            marginTop: 0,
+            marginBottom: "24px",
+            color: "#6b7280",
           }}
         >
-          <thead>
-            <tr>
-              <th style={hucre}>Malzeme</th>
-              <th style={hucre}>Alan</th>
-              <th style={hucre}>Gramaj</th>
-              <th style={hucre}>Alış Fiyatı (₺/kg)</th>
-              <th style={hucre}>Porsiyon Maliyeti</th>
-              <th style={hucre}>Kalori / 100 g</th>
-              <th style={hucre}>Porsiyon Kalorisi</th>
-            </tr>
-          </thead>
+          Gramaj, alış fiyatı ve kalori
+          bilgilerini yönet.
+        </p>
 
-          <tbody>
-            {filtrelenmisMalzemeler.map((malzeme) => {
-              const porsiyonMaliyeti =
-                (Number(malzeme.birimFiyat || 0) / 1000) *
-                Number(malzeme.gramaj || 0);
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(190px, 1fr))",
+            gap: "14px",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={kartStili}>
+            <small
+              style={{ color: "#6b7280" }}
+            >
+              Toplam malzeme
+            </small>
 
-              const porsiyonKalorisi =
-                (Number(malzeme.kalori100Gr || 0) / 100) *
-                Number(malzeme.gramaj || 0);
+            <h2 style={{ marginBottom: 0 }}>
+              {toplamMalzeme}
+            </h2>
+          </div>
 
-              return (
-                <tr key={malzeme.id}>
-                  <td style={hucre}>
-                    <strong>{malzeme.ad}</strong>
-                  </td>
+          <div style={kartStili}>
+            <small
+              style={{ color: "#6b7280" }}
+            >
+              Fiyat girilen
+            </small>
 
-                  <td style={hucre}>
-                    {malzeme.kullanimAlani}
-                  </td>
+            <h2
+              style={{
+                marginBottom: 0,
+                color: "#15803d",
+              }}
+            >
+              {fiyatGirilenMalzeme}
+            </h2>
+          </div>
 
-                  <td style={hucre}>
-                    <input
-                      type="number"
-                      min="0"
-                      value={malzeme.gramaj}
-                      onChange={(event) =>
-                        guncelle(
-                          malzeme.id,
-                          "gramaj",
-                          Number(event.target.value)
-                        )
-                      }
-                      style={{ width: "90px" }}
-                    />{" "}
-                    g
-                  </td>
+          <div style={kartStili}>
+            <small
+              style={{ color: "#6b7280" }}
+            >
+              Kalori girilen
+            </small>
 
-                  <td style={hucre}>
-                    <input
-                      type="number"
-                      min="0"
-                      value={malzeme.birimFiyat}
-                      onChange={(event) =>
-                        guncelle(
-                          malzeme.id,
-                          "birimFiyat",
-                          Number(event.target.value)
-                        )
-                      }
-                      style={{ width: "110px" }}
-                    />
-                  </td>
+            <h2
+              style={{
+                marginBottom: 0,
+                color: "#15803d",
+              }}
+            >
+              {kaloriGirilenMalzeme}
+            </h2>
+          </div>
 
-                  <td style={hucre}>
-                    {para(porsiyonMaliyeti)}
-                  </td>
+          <div style={kartStili}>
+            <small
+              style={{ color: "#6b7280" }}
+            >
+              Ortalama porsiyon maliyeti
+            </small>
 
-                  <td style={hucre}>
-                    <input
-                      type="number"
-                      min="0"
-                      value={malzeme.kalori100Gr}
-                      onChange={(event) =>
-                        guncelle(
-                          malzeme.id,
-                          "kalori100Gr",
-                          Number(event.target.value)
-                        )
-                      }
-                      style={{ width: "100px" }}
-                    />
-                  </td>
+            <h2 style={{ marginBottom: 0 }}>
+              {para(
+                ortalamaPorsiyonMaliyeti
+              )}
+            </h2>
+          </div>
+        </section>
 
-                  <td style={hucre}>
-                    {porsiyonKalorisi.toFixed(1)} kcal
-                  </td>
+        <section
+          style={{
+            ...kartStili,
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "16px",
+            marginBottom: "24px",
+          }}
+        >
+          <div>
+            <label>
+              <strong>Malzeme Ara</strong>
+            </label>
+
+            <input
+              value={arama}
+              onChange={(event) =>
+                setArama(event.target.value)
+              }
+              placeholder="Örneğin: Rozbif"
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+              }}
+            />
+          </div>
+
+          <div>
+            <label>
+              <strong>Kullanım Alanı</strong>
+            </label>
+
+            <select
+              value={alan}
+              onChange={(event) =>
+                setAlan(
+                  event.target.value as
+                    | "Tümü"
+                    | "Sandviç"
+                    | "Salata"
+                )
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+              }}
+            >
+              <option>Tümü</option>
+              <option>Sandviç</option>
+              <option>Salata</option>
+            </select>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-end",
+            }}
+          >
+            <button
+              onClick={varsayilanaDon}
+              style={{
+                width: "100%",
+                padding: "12px",
+                border:
+                  "1px solid #d1d5db",
+                borderRadius: "10px",
+                background: "#ffffff",
+                fontWeight: "bold",
+                cursor: "pointer",
+              }}
+            >
+              ↩️ Bütün Bilgileri Sıfırla
+            </button>
+          </div>
+        </section>
+
+        <section style={kartStili}>
+          <div
+            style={{
+              overflowX: "auto",
+            }}
+          >
+            <table
+              style={{
+                width: "100%",
+                minWidth: "980px",
+                borderCollapse:
+                  "collapse",
+              }}
+            >
+              <thead>
+                <tr>
+                  <th style={hucre}>
+                    Malzeme
+                  </th>
+
+                  <th style={hucre}>
+                    Alan
+                  </th>
+
+                  <th style={hucre}>
+                    Gramaj
+                  </th>
+
+                  <th style={hucre}>
+                    Alış Fiyatı (₺/kg)
+                  </th>
+
+                  <th style={hucre}>
+                    Porsiyon Maliyeti
+                  </th>
+
+                  <th style={hucre}>
+                    Kalori / 100 g
+                  </th>
+
+                  <th style={hucre}>
+                    Porsiyon Kalorisi
+                  </th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+
+              <tbody>
+                {filtrelenmisMalzemeler.map(
+                  (malzeme) => {
+                    const porsiyonMaliyeti =
+                      (Number(
+                        malzeme.birimFiyat ||
+                          0
+                      ) /
+                        1000) *
+                      Number(
+                        malzeme.gramaj || 0
+                      );
+
+                    const porsiyonKalorisi =
+                      (Number(
+                        malzeme.kalori100Gr ||
+                          0
+                      ) /
+                        100) *
+                      Number(
+                        malzeme.gramaj || 0
+                      );
+
+                    return (
+                      <tr key={malzeme.id}>
+                        <td style={hucre}>
+                          <strong>
+                            {malzeme.ad}
+                          </strong>
+                        </td>
+
+                        <td style={hucre}>
+                          {
+                            malzeme.kullanimAlani
+                          }
+                        </td>
+
+                        <td style={hucre}>
+                          <input
+                            type="number"
+                            min="0"
+                            value={
+                              malzeme.gramaj
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              guncelle(
+                                malzeme.id,
+                                "gramaj",
+                                Number(
+                                  event.target
+                                    .value
+                                )
+                              )
+                            }
+                            style={{
+                              width: "90px",
+                              padding: "8px",
+                              border:
+                                "1px solid #d1d5db",
+                              borderRadius:
+                                "8px",
+                            }}
+                          />{" "}
+                          g
+                        </td>
+
+                        <td style={hucre}>
+                          <input
+                            type="number"
+                            min="0"
+                            value={
+                              malzeme.birimFiyat
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              guncelle(
+                                malzeme.id,
+                                "birimFiyat",
+                                Number(
+                                  event.target
+                                    .value
+                                )
+                              )
+                            }
+                            style={{
+                              width: "110px",
+                              padding: "8px",
+                              border:
+                                "1px solid #d1d5db",
+                              borderRadius:
+                                "8px",
+                            }}
+                          />
+                        </td>
+
+                        <td
+                          style={{
+                            ...hucre,
+                            fontWeight:
+                              "bold",
+                            color:
+                              porsiyonMaliyeti >
+                              0
+                                ? "#174d38"
+                                : "#6b7280",
+                          }}
+                        >
+                          {para(
+                            porsiyonMaliyeti
+                          )}
+                        </td>
+
+                        <td style={hucre}>
+                          <input
+                            type="number"
+                            min="0"
+                            value={
+                              malzeme.kalori100Gr
+                            }
+                            onChange={(
+                              event
+                            ) =>
+                              guncelle(
+                                malzeme.id,
+                                "kalori100Gr",
+                                Number(
+                                  event.target
+                                    .value
+                                )
+                              )
+                            }
+                            style={{
+                              width: "100px",
+                              padding: "8px",
+                              border:
+                                "1px solid #d1d5db",
+                              borderRadius:
+                                "8px",
+                            }}
+                          />
+                        </td>
+
+                        <td
+                          style={{
+                            ...hucre,
+                            fontWeight:
+                              "bold",
+                          }}
+                        >
+                          {porsiyonKalorisi.toFixed(
+                            1
+                          )}{" "}
+                          kcal
+                        </td>
+                      </tr>
+                    );
+                  }
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {filtrelenmisMalzemeler.length ===
+            0 && (
+            <p
+              style={{
+                textAlign: "center",
+                color: "#6b7280",
+                padding: "25px",
+              }}
+            >
+              Malzeme bulunamadı.
+            </p>
+          )}
+        </section>
       </div>
     </main>
   );
 }
 
 const hucre = {
-  border: "1px solid #e5e7eb",
-  padding: "10px",
+  borderBottom: "1px solid #e5e7eb",
+  padding: "13px 10px",
   textAlign: "left" as const,
 };

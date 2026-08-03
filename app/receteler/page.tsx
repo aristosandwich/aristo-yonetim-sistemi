@@ -15,6 +15,7 @@ type Malzeme = {
 
 export default function Receteler() {
   const [malzemeler, setMalzemeler] = useState<Malzeme[]>([]);
+  const [arama, setArama] = useState("");
   const [secilenUrun, setSecilenUrun] = useState(
     receteler[0]?.urun || ""
   );
@@ -27,41 +28,64 @@ export default function Receteler() {
     setMalzemeler(kayitliMalzemeler);
   }, []);
 
+  const filtrelenmisReceteler = useMemo(() => {
+    const aranan = arama.trim().toLocaleLowerCase("tr-TR");
+
+    if (!aranan) {
+      return receteler;
+    }
+
+    return receteler.filter((recete) =>
+      recete.urun.toLocaleLowerCase("tr-TR").includes(aranan)
+    );
+  }, [arama]);
+
   const secilenRecete = useMemo(
-    () => receteler.find((recete) => recete.urun === secilenUrun),
+    () =>
+      receteler.find(
+        (recete) => recete.urun === secilenUrun
+      ),
     [secilenUrun]
   );
 
   const hesaplananSatirlar = useMemo(() => {
-    return (secilenRecete?.malzemeler || []).map((satir) => {
-      const bulunanMalzemeler = malzemeler.filter(
-        (malzeme) => malzeme.ad === satir.malzeme
-      );
+    return (secilenRecete?.malzemeler || []).map(
+      (satir) => {
+        const bulunanMalzemeler = malzemeler.filter(
+          (malzeme) => malzeme.ad === satir.malzeme
+        );
 
-      const malzeme =
-        bulunanMalzemeler.find((kayit) =>
-          secilenUrun.includes("Salata")
-            ? kayit.kullanimAlani === "Salata"
-            : kayit.kullanimAlani === "Sandviç"
-        ) || bulunanMalzemeler[0];
+        const malzeme =
+          bulunanMalzemeler.find((kayit) =>
+            secilenUrun.includes("Salata")
+              ? kayit.kullanimAlani === "Salata"
+              : kayit.kullanimAlani === "Sandviç"
+          ) || bulunanMalzemeler[0];
 
-      const maliyet = malzeme
-        ? (Number(malzeme.birimFiyat || 0) / 1000) *
-          Number(satir.gram || 0)
-        : 0;
+        const maliyet = malzeme
+          ? (Number(malzeme.birimFiyat || 0) / 1000) *
+            Number(satir.gram || 0)
+          : 0;
 
-      const kalori = malzeme
-        ? (Number(malzeme.kalori100Gr || 0) / 100) *
-          Number(satir.gram || 0)
-        : 0;
+        const kalori = malzeme
+          ? (Number(malzeme.kalori100Gr || 0) / 100) *
+            Number(satir.gram || 0)
+          : 0;
 
-      return {
-        ...satir,
-        maliyet,
-        kalori,
-        eslesti: Boolean(malzeme),
-      };
-    });
+        return {
+          ...satir,
+          maliyet,
+          kalori,
+          eslesti: Boolean(malzeme),
+          fiyatGirildi:
+            Boolean(malzeme) &&
+            Number(malzeme?.birimFiyat || 0) > 0,
+          kaloriGirildi:
+            Boolean(malzeme) &&
+            Number(malzeme?.kalori100Gr || 0) > 0,
+        };
+      }
+    );
   }, [secilenRecete, malzemeler, secilenUrun]);
 
   const toplamMaliyet = hesaplananSatirlar.reduce(
@@ -75,9 +99,22 @@ export default function Receteler() {
   );
 
   const toplamGramaj = hesaplananSatirlar.reduce(
-    (toplam, satir) => toplam + Number(satir.gram || 0),
+    (toplam, satir) =>
+      toplam + Number(satir.gram || 0),
     0
   );
+
+  const eslesmeyenSayisi = hesaplananSatirlar.filter(
+    (satir) => !satir.eslesti
+  ).length;
+
+  const fiyatEksikSayisi = hesaplananSatirlar.filter(
+    (satir) => satir.eslesti && !satir.fiyatGirildi
+  ).length;
+
+  const kaloriEksikSayisi = hesaplananSatirlar.filter(
+    (satir) => satir.eslesti && !satir.kaloriGirildi
+  ).length;
 
   const para = (tutar: number) =>
     new Intl.NumberFormat("tr-TR", {
@@ -85,78 +122,282 @@ export default function Receteler() {
       currency: "TRY",
     }).format(tutar);
 
+  const kartStili = {
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "18px",
+    padding: "20px",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
+  };
+
+  const alanStili = {
+    width: "100%",
+    padding: "11px",
+    border: "1px solid #d1d5db",
+    borderRadius: "10px",
+    boxSizing: "border-box" as const,
+    background: "#ffffff",
+  };
+
   return (
     <main
       style={{
-        maxWidth: "900px",
-        margin: "40px auto",
-        padding: "20px",
+        minHeight: "100vh",
+        background: "#f4f7f5",
+        padding: "30px 18px",
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <Link href="/">← Ana Sayfaya Dön</Link>
-
-      <h1>📋 Reçeteler</h1>
-
-      <label>Ürün</label>
-      <br />
-
-      <select
-        value={secilenUrun}
-        onChange={(event) => setSecilenUrun(event.target.value)}
+      <div
         style={{
-          width: "100%",
-          maxWidth: "400px",
-          padding: "10px",
+          maxWidth: "1000px",
+          margin: "0 auto",
         }}
       >
-        {receteler.map((recete) => (
-          <option key={recete.urun} value={recete.urun}>
-            {recete.urun}
-          </option>
-        ))}
-      </select>
+        <Link href="/">← Ana Sayfaya Dön</Link>
 
-      <hr style={{ margin: "30px 0" }} />
+        <h1 style={{ marginBottom: "6px" }}>
+          📋 Reçeteler
+        </h1>
 
-      <h2>{secilenUrun}</h2>
+        <p
+          style={{
+            marginTop: 0,
+            marginBottom: "24px",
+            color: "#6b7280",
+          }}
+        >
+          Ürün içeriklerini, maliyetlerini ve kalorilerini
+          görüntüle.
+        </p>
 
-      {hesaplananSatirlar.map((satir, index) => (
-        <div
-          key={`${satir.malzeme}-${index}`}
+        <section
+          style={{
+            ...kartStili,
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: "16px",
+            marginBottom: "24px",
+          }}
+        >
+          <div>
+            <label>
+              <strong>Ürün Ara</strong>
+            </label>
+
+            <input
+              value={arama}
+              onChange={(event) =>
+                setArama(event.target.value)
+              }
+              placeholder="Örneğin: Aristo"
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+              }}
+            />
+          </div>
+
+          <div>
+            <label>
+              <strong>Ürün Seç</strong>
+            </label>
+
+            <select
+              value={secilenUrun}
+              onChange={(event) =>
+                setSecilenUrun(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+              }}
+            >
+              {filtrelenmisReceteler.map((recete) => (
+                <option
+                  key={recete.urun}
+                  value={recete.urun}
+                >
+                  {recete.urun}
+                </option>
+              ))}
+            </select>
+          </div>
+        </section>
+
+        <section
           style={{
             display: "grid",
             gridTemplateColumns:
-              "minmax(180px, 1fr) 90px 140px 120px",
-            gap: "12px",
-            alignItems: "center",
-            borderBottom: "1px solid #e5e7eb",
-            padding: "12px 0",
+              "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: "14px",
+            marginBottom: "24px",
           }}
         >
-          <strong>{satir.malzeme}</strong>
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Toplam gramaj
+            </small>
 
-          <span>{satir.gram} g</span>
+            <h2 style={{ marginBottom: 0 }}>
+              {toplamGramaj} g
+            </h2>
+          </div>
 
-          <span>{para(satir.maliyet)}</span>
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Toplam maliyet
+            </small>
 
-          <span
+            <h2
+              style={{
+                marginBottom: 0,
+                color: "#174d38",
+              }}
+            >
+              {para(toplamMaliyet)}
+            </h2>
+          </div>
+
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Toplam kalori
+            </small>
+
+            <h2 style={{ marginBottom: 0 }}>
+              {toplamKalori.toFixed(1)} kcal
+            </h2>
+          </div>
+
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Malzeme sayısı
+            </small>
+
+            <h2 style={{ marginBottom: 0 }}>
+              {hesaplananSatirlar.length}
+            </h2>
+          </div>
+        </section>
+
+        {(eslesmeyenSayisi > 0 ||
+          fiyatEksikSayisi > 0 ||
+          kaloriEksikSayisi > 0) && (
+          <section
             style={{
-              color: satir.eslesti ? "#15803d" : "#b91c1c",
+              ...kartStili,
+              borderColor: "#f59e0b",
+              background: "#fffbeb",
+              marginBottom: "24px",
             }}
           >
-            {satir.eslesti
-              ? `${satir.kalori.toFixed(1)} kcal`
-              : "Eşleşmedi"}
-          </span>
-        </div>
-      ))}
+            <strong>⚠️ Eksik bilgiler</strong>
 
-      <hr style={{ margin: "30px 0" }} />
+            <p style={{ marginBottom: 0 }}>
+              Eşleşmeyen: {eslesmeyenSayisi} · Fiyatı eksik:{" "}
+              {fiyatEksikSayisi} · Kalorisi eksik:{" "}
+              {kaloriEksikSayisi}
+            </p>
+          </section>
+        )}
 
-      <h2>Toplam Gramaj: {toplamGramaj} g</h2>
-      <h2>Toplam Maliyet: {para(toplamMaliyet)}</h2>
-      <h2>Toplam Kalori: {toplamKalori.toFixed(1)} kcal</h2>
+        <section style={kartStili}>
+          <h2 style={{ marginTop: 0 }}>
+            {secilenUrun}
+          </h2>
+
+          <div style={{ overflowX: "auto" }}>
+            <table
+              style={{
+                width: "100%",
+                minWidth: "720px",
+                borderCollapse: "collapse",
+              }}
+            >
+              <thead>
+                <tr>
+                  <th style={hucre}>Malzeme</th>
+                  <th style={hucre}>Gramaj</th>
+                  <th style={hucre}>Maliyet</th>
+                  <th style={hucre}>Kalori</th>
+                  <th style={hucre}>Durum</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {hesaplananSatirlar.map(
+                  (satir, index) => (
+                    <tr
+                      key={`${satir.malzeme}-${index}`}
+                    >
+                      <td style={hucre}>
+                        <strong>{satir.malzeme}</strong>
+                      </td>
+
+                      <td style={hucre}>
+                        {satir.gram} g
+                      </td>
+
+                      <td style={hucre}>
+                        {satir.fiyatGirildi
+                          ? para(satir.maliyet)
+                          : "—"}
+                      </td>
+
+                      <td style={hucre}>
+                        {satir.kaloriGirildi
+                          ? `${satir.kalori.toFixed(
+                              1
+                            )} kcal`
+                          : "—"}
+                      </td>
+
+                      <td
+                        style={{
+                          ...hucre,
+                          color: !satir.eslesti
+                            ? "#b91c1c"
+                            : satir.fiyatGirildi &&
+                              satir.kaloriGirildi
+                            ? "#15803d"
+                            : "#b45309",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        {!satir.eslesti
+                          ? "Eşleşmedi"
+                          : satir.fiyatGirildi &&
+                            satir.kaloriGirildi
+                          ? "Hazır"
+                          : "Eksik bilgi"}
+                      </td>
+                    </tr>
+                  )
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {hesaplananSatirlar.length === 0 && (
+            <p
+              style={{
+                textAlign: "center",
+                color: "#6b7280",
+                padding: "25px",
+              }}
+            >
+              Bu ürünün reçetesi bulunamadı.
+            </p>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
+
+const hucre = {
+  borderBottom: "1px solid #e5e7eb",
+  padding: "13px 10px",
+  textAlign: "left" as const,
+};
