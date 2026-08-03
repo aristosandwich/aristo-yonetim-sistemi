@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type RehberKaydi = {
   id: number;
@@ -13,23 +13,47 @@ type RehberKaydi = {
 
 export default function Rehber() {
   const [ad, setAd] = useState("");
-  const [tur, setTur] = useState<RehberKaydi["tur"]>("Tedarikçi");
+  const [tur, setTur] =
+    useState<RehberKaydi["tur"]>("Tedarikçi");
   const [telefon, setTelefon] = useState("");
   const [not, setNot] = useState("");
   const [kayitlar, setKayitlar] = useState<RehberKaydi[]>([]);
   const [arama, setArama] = useState("");
+  const [turFiltresi, setTurFiltresi] = useState<
+    "Tümü" | RehberKaydi["tur"]
+  >("Tümü");
 
   useEffect(() => {
-    const veri = localStorage.getItem("aristo-rehber");
+    try {
+      const veri: RehberKaydi[] = JSON.parse(
+        localStorage.getItem("aristo-rehber") || "[]"
+      );
 
-    if (veri) {
-      setKayitlar(JSON.parse(veri));
+      setKayitlar(Array.isArray(veri) ? veri : []);
+    } catch {
+      setKayitlar([]);
     }
   }, []);
 
+  function kayitlariKaydet(yeniListe: RehberKaydi[]) {
+    setKayitlar(yeniListe);
+
+    localStorage.setItem(
+      "aristo-rehber",
+      JSON.stringify(yeniListe)
+    );
+  }
+
+  function formuTemizle() {
+    setAd("");
+    setTur("Tedarikçi");
+    setTelefon("");
+    setNot("");
+  }
+
   function kaydet() {
     if (!ad.trim()) {
-      alert("Ad gir.");
+      alert("Ad veya firma gir.");
       return;
     }
 
@@ -41,141 +65,401 @@ export default function Rehber() {
       not: not.trim(),
     };
 
-    const yeniListe = [yeniKayit, ...kayitlar];
+    kayitlariKaydet([yeniKayit, ...kayitlar]);
+    formuTemizle();
 
-    setKayitlar(yeniListe);
-    localStorage.setItem("aristo-rehber", JSON.stringify(yeniListe));
-
-    setAd("");
-    setTur("Tedarikçi");
-    setTelefon("");
-    setNot("");
+    alert("Rehber kaydı eklendi.");
   }
 
   function sil(id: number) {
-    const onay = window.confirm("Bu rehber kaydı silinsin mi?");
+    const onay = window.confirm(
+      "Bu rehber kaydı silinsin mi?"
+    );
 
     if (!onay) return;
 
-    const yeniListe = kayitlar.filter((kayit) => kayit.id !== id);
-
-    setKayitlar(yeniListe);
-    localStorage.setItem("aristo-rehber", JSON.stringify(yeniListe));
+    kayitlariKaydet(
+      kayitlar.filter((kayit) => kayit.id !== id)
+    );
   }
 
-  const filtrelenmisKayitlar = kayitlar.filter((kayit) => {
-    const aranan = arama.trim().toLocaleLowerCase("tr-TR");
-
-    if (!aranan) return true;
-
-    const metin = `${kayit.ad} ${kayit.tur} ${kayit.telefon} ${kayit.not}`
+  const filtrelenmisKayitlar = useMemo(() => {
+    const aranan = arama
+      .trim()
       .toLocaleLowerCase("tr-TR");
 
-    return metin.includes(aranan);
-  });
+    return kayitlar.filter((kayit) => {
+      const turUygun =
+        turFiltresi === "Tümü" ||
+        kayit.tur === turFiltresi;
+
+      const metin =
+        `${kayit.ad} ${kayit.tur} ${kayit.telefon} ${kayit.not}`.toLocaleLowerCase(
+          "tr-TR"
+        );
+
+      const aramaUygun =
+        !aranan || metin.includes(aranan);
+
+      return turUygun && aramaUygun;
+    });
+  }, [kayitlar, arama, turFiltresi]);
+
+  const tedarikciSayisi = kayitlar.filter(
+    (kayit) => kayit.tur === "Tedarikçi"
+  ).length;
+
+  const musteriSayisi = kayitlar.filter(
+    (kayit) => kayit.tur === "Müşteri"
+  ).length;
+
+  const personelSayisi = kayitlar.filter(
+    (kayit) => kayit.tur === "Personel"
+  ).length;
+
+  const kartStili = {
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "18px",
+    padding: "20px",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
+  };
+
+  const alanStili = {
+    width: "100%",
+    padding: "12px",
+    boxSizing: "border-box" as const,
+    border: "1px solid #d1d5db",
+    borderRadius: "10px",
+    background: "#ffffff",
+    fontSize: "15px",
+  };
+
+  const yesilButon = {
+    border: "none",
+    borderRadius: "10px",
+    padding: "13px 18px",
+    background: "#174d38",
+    color: "#ffffff",
+    fontWeight: "bold",
+    cursor: "pointer",
+  };
+
+  const kirmiziButon = {
+    border: "none",
+    borderRadius: "9px",
+    padding: "9px 12px",
+    background: "#b91c1c",
+    color: "#ffffff",
+    fontWeight: "bold",
+    cursor: "pointer",
+  };
 
   return (
     <main
       style={{
-        maxWidth: "800px",
-        margin: "40px auto",
-        padding: "20px",
+        minHeight: "100vh",
+        background: "#f4f7f5",
+        padding: "30px 18px",
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <Link href="/">← Ana Sayfaya Dön</Link>
-
-      <h1>📒 Müşteri ve Tedarikçi Rehberi</h1>
-
-      <hr />
-
-      <label>Ad / Firma</label>
-      <br />
-      <input
-        value={ad}
-        onChange={(event) => setAd(event.target.value)}
-        placeholder="Örneğin: Coca-Cola"
-      />
-
-      <br />
-      <br />
-
-      <label>Tür</label>
-      <br />
-      <select
-        value={tur}
-        onChange={(event) =>
-          setTur(event.target.value as RehberKaydi["tur"])
-        }
+      <div
+        style={{
+          maxWidth: "1050px",
+          margin: "0 auto",
+        }}
       >
-        <option>Tedarikçi</option>
-        <option>Müşteri</option>
-        <option>Personel</option>
-        <option>Diğer</option>
-      </select>
+        <Link href="/">← Ana Sayfaya Dön</Link>
 
-      <br />
-      <br />
+        <h1 style={{ marginBottom: "6px" }}>
+          📒 Müşteri ve Tedarikçi Rehberi
+        </h1>
 
-      <label>Telefon</label>
-      <br />
-      <input
-        value={telefon}
-        onChange={(event) => setTelefon(event.target.value)}
-        placeholder="Telefon numarası"
-      />
+        <p
+          style={{
+            marginTop: 0,
+            marginBottom: "24px",
+            color: "#6b7280",
+          }}
+        >
+          Firma, müşteri ve personel bilgilerini yönet.
+        </p>
 
-      <br />
-      <br />
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(190px, 1fr))",
+            gap: "14px",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Toplam kayıt
+            </small>
 
-      <label>Not</label>
-      <br />
-      <input
-        value={not}
-        onChange={(event) => setNot(event.target.value)}
-        placeholder="İsteğe bağlı"
-      />
+            <h2 style={{ marginBottom: 0 }}>
+              {kayitlar.length}
+            </h2>
+          </div>
 
-      <br />
-      <br />
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Tedarikçi
+            </small>
 
-      <button onClick={kaydet}>💾 Kaydet</button>
+            <h2 style={{ marginBottom: 0 }}>
+              {tedarikciSayisi}
+            </h2>
+          </div>
 
-      <hr />
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Müşteri
+            </small>
 
-      <h2>🔍 Ara</h2>
+            <h2 style={{ marginBottom: 0 }}>
+              {musteriSayisi}
+            </h2>
+          </div>
 
-      <input
-        value={arama}
-        onChange={(event) => setArama(event.target.value)}
-        placeholder="Firma, tür veya telefon ara"
-        style={{ width: "100%", padding: "10px", boxSizing: "border-box" }}
-      />
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Personel
+            </small>
 
-      <hr />
+            <h2 style={{ marginBottom: 0 }}>
+              {personelSayisi}
+            </h2>
+          </div>
+        </section>
 
-      <h2>Kayıtlar</h2>
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(300px, 1fr))",
+            gap: "18px",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              ➕ Yeni Rehber Kaydı
+            </h2>
 
-      {filtrelenmisKayitlar.length === 0 ? (
-        <p>Kayıt yok.</p>
-      ) : (
-        <ul>
-          {filtrelenmisKayitlar.map((kayit) => (
-            <li key={kayit.id} style={{ marginBottom: "22px" }}>
-              <strong>{kayit.ad}</strong>
-              <br />
-              Tür: {kayit.tur}
-              <br />
-              Telefon: {kayit.telefon || "-"}
-              <br />
-              Not: {kayit.not || "-"}
-              <br />
-              <br />
-              <button onClick={() => sil(kayit.id)}>🗑️ Sil</button>
-            </li>
-          ))}
-        </ul>
-      )}
+            <label>
+              <strong>Ad / Firma</strong>
+            </label>
+
+            <input
+              value={ad}
+              onChange={(event) =>
+                setAd(event.target.value)
+              }
+              placeholder="Örneğin: Coca-Cola"
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
+
+            <label>
+              <strong>Tür</strong>
+            </label>
+
+            <select
+              value={tur}
+              onChange={(event) =>
+                setTur(
+                  event.target.value as RehberKaydi["tur"]
+                )
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            >
+              <option>Tedarikçi</option>
+              <option>Müşteri</option>
+              <option>Personel</option>
+              <option>Diğer</option>
+            </select>
+
+            <label>
+              <strong>Telefon</strong>
+            </label>
+
+            <input
+              value={telefon}
+              onChange={(event) =>
+                setTelefon(event.target.value)
+              }
+              placeholder="Telefon numarası"
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
+
+            <label>
+              <strong>Not</strong>
+            </label>
+
+            <textarea
+              value={not}
+              onChange={(event) =>
+                setNot(event.target.value)
+              }
+              placeholder="İsteğe bağlı"
+              rows={4}
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "16px",
+                resize: "vertical",
+              }}
+            />
+
+            <button
+              onClick={kaydet}
+              style={yesilButon}
+            >
+              💾 Kaydet
+            </button>
+          </div>
+
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              🔍 Rehberi Filtrele
+            </h2>
+
+            <label>
+              <strong>Arama</strong>
+            </label>
+
+            <input
+              value={arama}
+              onChange={(event) =>
+                setArama(event.target.value)
+              }
+              placeholder="Firma, tür veya telefon ara"
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
+
+            <label>
+              <strong>Tür</strong>
+            </label>
+
+            <select
+              value={turFiltresi}
+              onChange={(event) =>
+                setTurFiltresi(
+                  event.target.value as
+                    | "Tümü"
+                    | RehberKaydi["tur"]
+                )
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+              }}
+            >
+              <option>Tümü</option>
+              <option>Tedarikçi</option>
+              <option>Müşteri</option>
+              <option>Personel</option>
+              <option>Diğer</option>
+            </select>
+          </div>
+        </section>
+
+        <section style={kartStili}>
+          <h2 style={{ marginTop: 0 }}>
+            Kayıtlar ({filtrelenmisKayitlar.length})
+          </h2>
+
+          {filtrelenmisKayitlar.length === 0 ? (
+            <p style={{ color: "#6b7280" }}>
+              Kayıt bulunamadı.
+            </p>
+          ) : (
+            filtrelenmisKayitlar.map((kayit) => (
+              <div
+                key={kayit.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "minmax(180px, 1fr) auto",
+                  gap: "18px",
+                  borderBottom:
+                    "1px solid #e5e7eb",
+                  padding: "16px 0",
+                }}
+              >
+                <div>
+                  <strong>{kayit.ad}</strong>
+
+                  <p
+                    style={{
+                      margin: "6px 0",
+                      color: "#6b7280",
+                    }}
+                  >
+                    {kayit.tur}
+                  </p>
+
+                  <p style={{ margin: "6px 0" }}>
+                    Telefon: {kayit.telefon || "-"}
+                  </p>
+
+                  <p style={{ margin: 0 }}>
+                    Not: {kayit.not || "-"}
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                    alignItems: "flex-end",
+                  }}
+                >
+                  {kayit.telefon && (
+                    <a
+                      href={`tel:${kayit.telefon}`}
+                      style={{
+                        color: "#174d38",
+                        fontWeight: "bold",
+                        textDecoration: "none",
+                      }}
+                    >
+                      📞 Ara
+                    </a>
+                  )}
+
+                  <button
+                    onClick={() => sil(kayit.id)}
+                    style={kirmiziButon}
+                  >
+                    🗑️ Sil
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </section>
+      </div>
     </main>
   );
 }

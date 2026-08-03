@@ -2,9 +2,22 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 type SatisKaydi = {
   id: number;
+  islemId?: number;
   tarih?: string;
   urun?: string;
   platform?: string;
@@ -13,65 +26,113 @@ type SatisKaydi = {
   toplam?: number;
 };
 
+type Donem = "Bugün" | "Son 7 Gün" | "Bu Ay" | "Tümü";
+
+function ayniGunMu(tarih1: Date, tarih2: Date) {
+  return (
+    tarih1.getDate() === tarih2.getDate() &&
+    tarih1.getMonth() === tarih2.getMonth() &&
+    tarih1.getFullYear() === tarih2.getFullYear()
+  );
+}
+
+function kayitTarihi(kayit: SatisKaydi) {
+  const tarih = new Date(kayit.islemId || kayit.id);
+
+  return Number.isNaN(tarih.getTime()) ? null : tarih;
+}
+
+function donemeUygunMu(kayit: SatisKaydi, donem: Donem) {
+  if (donem === "Tümü") {
+    return true;
+  }
+
+  const tarih = kayitTarihi(kayit);
+
+  if (!tarih) {
+    return false;
+  }
+
+  const bugun = new Date();
+
+  if (donem === "Bugün") {
+    return ayniGunMu(tarih, bugun);
+  }
+
+  if (donem === "Bu Ay") {
+    return (
+      tarih.getMonth() === bugun.getMonth() &&
+      tarih.getFullYear() === bugun.getFullYear()
+    );
+  }
+
+  const baslangic = new Date();
+  baslangic.setHours(0, 0, 0, 0);
+  baslangic.setDate(baslangic.getDate() - 6);
+
+  return tarih >= baslangic;
+}
+
+function para(tutar: number) {
+  return new Intl.NumberFormat("tr-TR", {
+    style: "currency",
+    currency: "TRY",
+  }).format(tutar);
+}
+
 export default function Istatistik() {
   const [satislar, setSatislar] = useState<SatisKaydi[]>([]);
+  const [donem, setDonem] = useState<Donem>("Bu Ay");
 
   useEffect(() => {
-    const kayitliSatislar = JSON.parse(
-      localStorage.getItem("aristo-satislar") || "[]"
-    );
+    try {
+      const kayitliSatislar: SatisKaydi[] = JSON.parse(
+        localStorage.getItem("aristo-satislar") || "[]"
+      );
 
-    setSatislar(kayitliSatislar);
+      setSatislar(
+        Array.isArray(kayitliSatislar)
+          ? kayitliSatislar
+          : []
+      );
+    } catch {
+      setSatislar([]);
+    }
   }, []);
 
-  const toplamCiro = satislar.reduce(
-    (toplam, kayit) => toplam + Number(kayit.toplam || 0),
+  const filtreliSatislar = useMemo(
+    () =>
+      satislar.filter((kayit) =>
+        donemeUygunMu(kayit, donem)
+      ),
+    [satislar, donem]
+  );
+
+  const toplamCiro = filtreliSatislar.reduce(
+    (toplam, kayit) =>
+      toplam + Number(kayit.toplam || 0),
     0
   );
 
-  const toplamUrun = satislar.reduce(
-    (toplam, kayit) => toplam + Number(kayit.adet || 1),
+  const toplamUrun = filtreliSatislar.reduce(
+    (toplam, kayit) =>
+      toplam + Number(kayit.adet || 1),
     0
   );
+
+  const islemSayisi = new Set(
+    filtreliSatislar.map(
+      (kayit) => kayit.islemId || kayit.id
+    )
+  ).size;
 
   const ortalamaFis =
-    satislar.length > 0 ? toplamCiro / satislar.length : 0;
-
-  const bugunkuCiro = satislar
-    .filter((kayit) => {
-      const kayitTarihi = new Date(kayit.id);
-      const bugun = new Date();
-
-      return (
-        kayitTarihi.getDate() === bugun.getDate() &&
-        kayitTarihi.getMonth() === bugun.getMonth() &&
-        kayitTarihi.getFullYear() === bugun.getFullYear()
-      );
-    })
-    .reduce(
-      (toplam, kayit) => toplam + Number(kayit.toplam || 0),
-      0
-    );
-
-  const buAykiCiro = satislar
-    .filter((kayit) => {
-      const kayitTarihi = new Date(kayit.id);
-      const bugun = new Date();
-
-      return (
-        kayitTarihi.getMonth() === bugun.getMonth() &&
-        kayitTarihi.getFullYear() === bugun.getFullYear()
-      );
-    })
-    .reduce(
-      (toplam, kayit) => toplam + Number(kayit.toplam || 0),
-      0
-    );
+    islemSayisi > 0 ? toplamCiro / islemSayisi : 0;
 
   const urunSiralamasi = useMemo(() => {
     const sonuc: Record<string, number> = {};
 
-    satislar.forEach((kayit) => {
+    filtreliSatislar.forEach((kayit) => {
       const urun = kayit.urun || "Eski Satış Kaydı";
       const adet = Number(kayit.adet || 1);
 
@@ -81,200 +142,578 @@ export default function Istatistik() {
     return Object.entries(sonuc)
       .map(([urun, adet]) => ({ urun, adet }))
       .sort((a, b) => b.adet - a.adet);
-  }, [satislar]);
+  }, [filtreliSatislar]);
 
   const platformSiralamasi = useMemo(() => {
     const sonuc: Record<string, number> = {};
 
-    satislar.forEach((kayit) => {
-      const platform = kayit.platform || "Belirtilmemiş";
-      const tutar = Number(kayit.toplam || 0);
+    filtreliSatislar.forEach((kayit) => {
+      const platform =
+        kayit.platform || "Belirtilmemiş";
 
-      sonuc[platform] = (sonuc[platform] || 0) + tutar;
+      sonuc[platform] =
+        (sonuc[platform] || 0) +
+        Number(kayit.toplam || 0);
     });
 
     return Object.entries(sonuc)
-      .map(([platform, tutar]) => ({ platform, tutar }))
+      .map(([platform, tutar]) => ({
+        platform,
+        tutar,
+      }))
       .sort((a, b) => b.tutar - a.tutar);
-  }, [satislar]);
+  }, [filtreliSatislar]);
 
   const odemeSiralamasi = useMemo(() => {
     const sonuc: Record<string, number> = {};
 
-    satislar.forEach((kayit) => {
-      const odeme = kayit.odemeTipi || "Belirtilmemiş";
-      const tutar = Number(kayit.toplam || 0);
+    filtreliSatislar.forEach((kayit) => {
+      const odeme =
+        kayit.odemeTipi || "Belirtilmemiş";
 
-      sonuc[odeme] = (sonuc[odeme] || 0) + tutar;
+      sonuc[odeme] =
+        (sonuc[odeme] || 0) +
+        Number(kayit.toplam || 0);
     });
 
     return Object.entries(sonuc)
-      .map(([odeme, tutar]) => ({ odeme, tutar }))
+      .map(([odeme, tutar]) => ({
+        odeme,
+        tutar,
+      }))
       .sort((a, b) => b.tutar - a.tutar);
-  }, [satislar]);
+  }, [filtreliSatislar]);
 
   const saatSiralamasi = useMemo(() => {
     const sonuc: Record<string, number> = {};
 
-    satislar.forEach((kayit) => {
-      const saat = new Date(kayit.id).getHours();
-      const saatMetni = `${String(saat).padStart(2, "0")}:00`;
+    filtreliSatislar.forEach((kayit) => {
+      const tarih = kayitTarihi(kayit);
+
+      if (!tarih) return;
+
+      const saatMetni = `${String(
+        tarih.getHours()
+      ).padStart(2, "0")}:00`;
 
       sonuc[saatMetni] =
-        (sonuc[saatMetni] || 0) + Number(kayit.toplam || 0);
+        (sonuc[saatMetni] || 0) +
+        Number(kayit.toplam || 0);
     });
 
     return Object.entries(sonuc)
-      .map(([saat, tutar]) => ({ saat, tutar }))
-      .sort((a, b) => a.saat.localeCompare(b.saat));
-  }, [satislar]);
+      .map(([saat, tutar]) => ({
+        saat,
+        tutar,
+      }))
+      .sort((a, b) =>
+        a.saat.localeCompare(b.saat)
+      );
+  }, [filtreliSatislar]);
 
-  const para = (tutar: number) =>
-    new Intl.NumberFormat("tr-TR", {
-      style: "currency",
-      currency: "TRY",
-    }).format(tutar);
+  const gunlukGrafik = useMemo(() => {
+    const gunSayisi =
+      donem === "Bugün"
+        ? 1
+        : donem === "Bu Ay"
+        ? 30
+        : 7;
 
-  const kart = {
+    return Array.from(
+      { length: gunSayisi },
+      (_, index) => {
+        const tarih = new Date();
+
+        tarih.setHours(0, 0, 0, 0);
+        tarih.setDate(
+          tarih.getDate() -
+            (gunSayisi - 1 - index)
+        );
+
+        const gunlukKayitlar = satislar.filter(
+          (kayit) => {
+            const kayitTarih = kayitTarihi(kayit);
+
+            return kayitTarih
+              ? ayniGunMu(kayitTarih, tarih)
+              : false;
+          }
+        );
+
+        const ciro = gunlukKayitlar.reduce(
+          (toplam, kayit) =>
+            toplam +
+            Number(kayit.toplam || 0),
+          0
+        );
+
+        const adet = gunlukKayitlar.reduce(
+          (toplam, kayit) =>
+            toplam + Number(kayit.adet || 1),
+          0
+        );
+
+        return {
+          tarih: tarih.toLocaleDateString(
+            "tr-TR",
+            {
+              day: "2-digit",
+              month: "2-digit",
+            }
+          ),
+          ciro,
+          adet,
+        };
+      }
+    );
+  }, [satislar, donem]);
+
+  const enCokSatan =
+    urunSiralamasi[0]?.urun || "-";
+
+  const enGucluPlatform =
+    platformSiralamasi[0]?.platform || "-";
+
+  const enYogunSaat =
+    [...saatSiralamasi].sort(
+      (a, b) => b.tutar - a.tutar
+    )[0]?.saat || "-";
+
+  const kartStili = {
     background: "#ffffff",
     border: "1px solid #e5e7eb",
-    borderRadius: "14px",
-    padding: "18px",
+    borderRadius: "18px",
+    padding: "20px",
+    boxShadow:
+      "0 8px 20px rgba(0,0,0,0.06)",
+  };
+
+  const secimStili = {
+    padding: "11px 14px",
+    borderRadius: "10px",
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    fontWeight: "bold",
   };
 
   return (
     <main
       style={{
-        maxWidth: "1000px",
-        margin: "40px auto",
-        padding: "20px",
+        minHeight: "100vh",
+        background: "#f4f7f5",
+        padding: "30px 18px",
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <Link href="/">← Ana Sayfaya Dön</Link>
-
-      <h1>📈 Satış İstatistikleri</h1>
-
-      <section
+      <div
         style={{
-          display: "grid",
-          gridTemplateColumns:
-            "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: "15px",
-          marginBottom: "30px",
+          maxWidth: "1100px",
+          margin: "0 auto",
         }}
       >
-        <div style={kart}>
-          <strong>Bugünkü Ciro</strong>
-          <h2>{para(bugunkuCiro)}</h2>
-        </div>
+        <Link href="/">
+          ← Ana Sayfaya Dön
+        </Link>
 
-        <div style={kart}>
-          <strong>Bu Ayki Ciro</strong>
-          <h2>{para(buAykiCiro)}</h2>
-        </div>
-
-        <div style={kart}>
-          <strong>Toplam Ciro</strong>
-          <h2>{para(toplamCiro)}</h2>
-        </div>
-
-        <div style={kart}>
-          <strong>Toplam Satılan Ürün</strong>
-          <h2>{toplamUrun} adet</h2>
-        </div>
-
-        <div style={kart}>
-          <strong>Ortalama Fiş</strong>
-          <h2>{para(ortalamaFis)}</h2>
-        </div>
-
-        <div style={kart}>
-          <strong>Toplam İşlem</strong>
-          <h2>{satislar.length}</h2>
-        </div>
-      </section>
-
-      <hr />
-
-      <h2>🥇 En Çok Satan Ürünler</h2>
-
-      {urunSiralamasi.length === 0 ? (
-        <p>Henüz satış kaydı yok.</p>
-      ) : (
-        <ol>
-          {urunSiralamasi.map((kayit) => (
-            <li key={kayit.urun} style={{ marginBottom: "10px" }}>
-              <strong>{kayit.urun}</strong> — {kayit.adet} adet
-            </li>
-          ))}
-        </ol>
-      )}
-
-      <hr />
-
-      <h2>🚚 Platform Dağılımı</h2>
-
-      {platformSiralamasi.length === 0 ? (
-        <p>Veri yok.</p>
-      ) : (
-        <ul>
-          {platformSiralamasi.map((kayit) => (
-            <li
-              key={kayit.platform}
-              style={{ marginBottom: "10px" }}
-            >
-              <strong>{kayit.platform}</strong> —{" "}
-              {para(kayit.tutar)}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <hr />
-
-      <h2>💳 Ödeme Tipleri</h2>
-
-      {odemeSiralamasi.length === 0 ? (
-        <p>Veri yok.</p>
-      ) : (
-        <ul>
-          {odemeSiralamasi.map((kayit) => (
-            <li
-              key={kayit.odeme}
-              style={{ marginBottom: "10px" }}
-            >
-              <strong>{kayit.odeme}</strong> —{" "}
-              {para(kayit.tutar)}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <hr />
-
-      <h2>🕒 Saatlik Ciro</h2>
-
-      {saatSiralamasi.length === 0 ? (
-        <p>Veri yok.</p>
-      ) : (
-        <div>
-          {saatSiralamasi.map((kayit) => (
-            <div
-              key={kayit.saat}
+        <div
+          style={{
+            display: "flex",
+            justifyContent:
+              "space-between",
+            alignItems: "flex-end",
+            gap: "16px",
+            flexWrap: "wrap",
+            marginBottom: "24px",
+          }}
+        >
+          <div>
+            <h1
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                borderBottom: "1px solid #e5e7eb",
-                padding: "10px 0",
+                marginBottom: "6px",
               }}
             >
-              <strong>{kayit.saat}</strong>
-              <span>{para(kayit.tutar)}</span>
-            </div>
-          ))}
+              📈 Satış İstatistikleri
+            </h1>
+
+            <p
+              style={{
+                margin: 0,
+                color: "#6b7280",
+              }}
+            >
+              Satış performansını ve müşteri
+              davranışlarını incele.
+            </p>
+          </div>
+
+          <select
+            value={donem}
+            onChange={(event) =>
+              setDonem(
+                event.target.value as Donem
+              )
+            }
+            style={secimStili}
+          >
+            <option>Bugün</option>
+            <option>Son 7 Gün</option>
+            <option>Bu Ay</option>
+            <option>Tümü</option>
+          </select>
         </div>
-      )}
+
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(190px, 1fr))",
+            gap: "14px",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={kartStili}>
+            <small
+              style={{
+                color: "#6b7280",
+              }}
+            >
+              Toplam ciro
+            </small>
+
+            <h2
+              style={{
+                marginBottom: 0,
+                color: "#174d38",
+              }}
+            >
+              {para(toplamCiro)}
+            </h2>
+          </div>
+
+          <div style={kartStili}>
+            <small
+              style={{
+                color: "#6b7280",
+              }}
+            >
+              Satılan ürün
+            </small>
+
+            <h2 style={{ marginBottom: 0 }}>
+              {toplamUrun} adet
+            </h2>
+          </div>
+
+          <div style={kartStili}>
+            <small
+              style={{
+                color: "#6b7280",
+              }}
+            >
+              İşlem sayısı
+            </small>
+
+            <h2 style={{ marginBottom: 0 }}>
+              {islemSayisi}
+            </h2>
+          </div>
+
+          <div style={kartStili}>
+            <small
+              style={{
+                color: "#6b7280",
+              }}
+            >
+              Ortalama fiş
+            </small>
+
+            <h2 style={{ marginBottom: 0 }}>
+              {para(ortalamaFis)}
+            </h2>
+          </div>
+        </section>
+
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "14px",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={kartStili}>
+            <small
+              style={{
+                color: "#6b7280",
+              }}
+            >
+              En çok satan ürün
+            </small>
+
+            <h3 style={{ marginBottom: 0 }}>
+              {enCokSatan}
+            </h3>
+          </div>
+
+          <div style={kartStili}>
+            <small
+              style={{
+                color: "#6b7280",
+              }}
+            >
+              En güçlü platform
+            </small>
+
+            <h3 style={{ marginBottom: 0 }}>
+              {enGucluPlatform}
+            </h3>
+          </div>
+
+          <div style={kartStili}>
+            <small
+              style={{
+                color: "#6b7280",
+              }}
+            >
+              En yoğun saat
+            </small>
+
+            <h3 style={{ marginBottom: 0 }}>
+              {enYogunSaat}
+            </h3>
+          </div>
+        </section>
+
+        <section
+          style={{
+            ...kartStili,
+            marginBottom: "24px",
+          }}
+        >
+          <h2 style={{ marginTop: 0 }}>
+            📊 Günlük Ciro
+          </h2>
+
+          <div
+            style={{
+              width: "100%",
+              height: "330px",
+            }}
+          >
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+            >
+              <LineChart data={gunlukGrafik}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                />
+
+                <XAxis dataKey="tarih" />
+
+                <YAxis />
+
+                <Tooltip
+                  formatter={(deger) =>
+                    para(Number(deger || 0))
+                  }
+                />
+
+                <Legend />
+
+                <Line
+                  type="monotone"
+                  dataKey="ciro"
+                  name="Ciro"
+                  stroke="#174d38"
+                  strokeWidth={3}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+
+        <section
+          style={{
+            ...kartStili,
+            marginBottom: "24px",
+          }}
+        >
+          <h2 style={{ marginTop: 0 }}>
+            🕒 Saatlik Ciro
+          </h2>
+
+          <div
+            style={{
+              width: "100%",
+              height: "320px",
+            }}
+          >
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+            >
+              <BarChart data={saatSiralamasi}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                />
+
+                <XAxis dataKey="saat" />
+
+                <YAxis />
+
+                <Tooltip
+                  formatter={(deger) =>
+                    para(Number(deger || 0))
+                  }
+                />
+
+                <Bar
+                  dataKey="tutar"
+                  name="Ciro"
+                  fill="#174d38"
+                  radius={[6, 6, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: "18px",
+          }}
+        >
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              🥇 En Çok Satan Ürünler
+            </h2>
+
+            {urunSiralamasi.length === 0 ? (
+              <p
+                style={{
+                  color: "#6b7280",
+                }}
+              >
+                Henüz satış kaydı yok.
+              </p>
+            ) : (
+              urunSiralamasi
+                .slice(0, 10)
+                .map((kayit, index) => (
+                  <div
+                    key={kayit.urun}
+                    style={{
+                      display: "flex",
+                      justifyContent:
+                        "space-between",
+                      gap: "12px",
+                      borderBottom:
+                        "1px solid #e5e7eb",
+                      padding: "11px 0",
+                    }}
+                  >
+                    <strong>
+                      {index + 1}. {kayit.urun}
+                    </strong>
+
+                    <span>
+                      {kayit.adet} adet
+                    </span>
+                  </div>
+                ))
+            )}
+          </div>
+
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              🚚 Platform Dağılımı
+            </h2>
+
+            {platformSiralamasi.length ===
+            0 ? (
+              <p
+                style={{
+                  color: "#6b7280",
+                }}
+              >
+                Veri yok.
+              </p>
+            ) : (
+              platformSiralamasi.map(
+                (kayit) => (
+                  <div
+                    key={kayit.platform}
+                    style={{
+                      display: "flex",
+                      justifyContent:
+                        "space-between",
+                      gap: "12px",
+                      borderBottom:
+                        "1px solid #e5e7eb",
+                      padding: "11px 0",
+                    }}
+                  >
+                    <strong>
+                      {kayit.platform}
+                    </strong>
+
+                    <span>
+                      {para(kayit.tutar)}
+                    </span>
+                  </div>
+                )
+              )
+            )}
+          </div>
+
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              💳 Ödeme Tipleri
+            </h2>
+
+            {odemeSiralamasi.length ===
+            0 ? (
+              <p
+                style={{
+                  color: "#6b7280",
+                }}
+              >
+                Veri yok.
+              </p>
+            ) : (
+              odemeSiralamasi.map(
+                (kayit) => (
+                  <div
+                    key={kayit.odeme}
+                    style={{
+                      display: "flex",
+                      justifyContent:
+                        "space-between",
+                      gap: "12px",
+                      borderBottom:
+                        "1px solid #e5e7eb",
+                      padding: "11px 0",
+                    }}
+                  >
+                    <strong>
+                      {kayit.odeme}
+                    </strong>
+
+                    <span>
+                      {para(kayit.tutar)}
+                    </span>
+                  </div>
+                )
+              )
+            )}
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
