@@ -158,9 +158,9 @@ export default function Dashboard() {
   const kartStili = {
     background: "#ffffff",
     border: "1px solid #e5e7eb",
-    borderRadius: "16px",
-    padding: "18px",
-    boxShadow: "0 5px 18px rgba(0,0,0,0.06)",
+    borderRadius: "18px",
+    padding: "20px",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
   };
 
   return (
@@ -176,6 +176,16 @@ export default function Dashboard() {
         <Link href="/">← Ana Sayfaya Dön</Link>
 
         <h1>📊 Yönetim Paneli</h1>
+
+        <p
+          style={{
+            color: "#6b7280",
+            marginTop: "-10px",
+            marginBottom: "25px",
+          }}
+        >
+          Aristo Sandwich & Salad Bar • Canlı İşletme Özeti
+        </p>
 
         <section
           style={{
