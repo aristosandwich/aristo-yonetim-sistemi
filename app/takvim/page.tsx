@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type TakvimKaydi = {
   id: number;
@@ -12,20 +12,58 @@ type TakvimKaydi = {
   tamamlandi: boolean;
 };
 
+const turler = [
+  "Ödeme",
+  "Fatura",
+  "Vergi",
+  "Personel",
+  "Sipariş",
+  "Toplantı",
+  "Diğer",
+];
+
 export default function Takvim() {
   const [baslik, setBaslik] = useState("");
   const [tarih, setTarih] = useState("");
   const [tur, setTur] = useState("Ödeme");
   const [aciklama, setAciklama] = useState("");
   const [kayitlar, setKayitlar] = useState<TakvimKaydi[]>([]);
+  const [arama, setArama] = useState("");
+  const [durum, setDurum] = useState<
+    "Tümü" | "Bekleyen" | "Tamamlanan"
+  >("Tümü");
 
   useEffect(() => {
-    const veri = localStorage.getItem("aristo-takvim");
+    try {
+      const veri: TakvimKaydi[] = JSON.parse(
+        localStorage.getItem("aristo-takvim") || "[]"
+      );
 
-    if (veri) {
-      setKayitlar(JSON.parse(veri));
+      setKayitlar(Array.isArray(veri) ? veri : []);
+    } catch {
+      setKayitlar([]);
     }
   }, []);
+
+  function kayitlariKaydet(yeniListe: TakvimKaydi[]) {
+    const siraliListe = [...yeniListe].sort((a, b) =>
+      a.tarih.localeCompare(b.tarih)
+    );
+
+    setKayitlar(siraliListe);
+
+    localStorage.setItem(
+      "aristo-takvim",
+      JSON.stringify(siraliListe)
+    );
+  }
+
+  function formuTemizle() {
+    setBaslik("");
+    setTarih("");
+    setTur("Ödeme");
+    setAciklama("");
+  }
 
   function kaydet() {
     if (!baslik.trim() || !tarih) {
@@ -42,28 +80,23 @@ export default function Takvim() {
       tamamlandi: false,
     };
 
-    const yeniListe = [...kayitlar, yeniKayit].sort((a, b) =>
-      a.tarih.localeCompare(b.tarih)
-    );
+    kayitlariKaydet([...kayitlar, yeniKayit]);
+    formuTemizle();
 
-    setKayitlar(yeniListe);
-    localStorage.setItem("aristo-takvim", JSON.stringify(yeniListe));
-
-    setBaslik("");
-    setTarih("");
-    setTur("Ödeme");
-    setAciklama("");
+    alert("Takvim kaydı eklendi.");
   }
 
   function tamamlandiDegistir(id: number) {
     const yeniListe = kayitlar.map((kayit) =>
       kayit.id === id
-        ? { ...kayit, tamamlandi: !kayit.tamamlandi }
+        ? {
+            ...kayit,
+            tamamlandi: !kayit.tamamlandi,
+          }
         : kayit
     );
 
-    setKayitlar(yeniListe);
-    localStorage.setItem("aristo-takvim", JSON.stringify(yeniListe));
+    kayitlariKaydet(yeniListe);
   }
 
   function sil(id: number) {
@@ -71,10 +104,9 @@ export default function Takvim() {
 
     if (!onay) return;
 
-    const yeniListe = kayitlar.filter((kayit) => kayit.id !== id);
-
-    setKayitlar(yeniListe);
-    localStorage.setItem("aristo-takvim", JSON.stringify(yeniListe));
+    kayitlariKaydet(
+      kayitlar.filter((kayit) => kayit.id !== id)
+    );
   }
 
   function tarihiYaz(tarihMetni: string) {
@@ -85,132 +117,470 @@ export default function Takvim() {
     }).format(new Date(`${tarihMetni}T12:00:00`));
   }
 
+  function kalanGun(tarihMetni: string) {
+    const bugun = new Date();
+    bugun.setHours(0, 0, 0, 0);
+
+    const hedef = new Date(`${tarihMetni}T00:00:00`);
+    hedef.setHours(0, 0, 0, 0);
+
+    return Math.round(
+      (hedef.getTime() - bugun.getTime()) /
+        (1000 * 60 * 60 * 24)
+    );
+  }
+
+  const filtrelenmisKayitlar = useMemo(() => {
+    const aranan = arama
+      .trim()
+      .toLocaleLowerCase("tr-TR");
+
+    return kayitlar.filter((kayit) => {
+      const durumUygun =
+        durum === "Tümü" ||
+        (durum === "Bekleyen" && !kayit.tamamlandi) ||
+        (durum === "Tamamlanan" && kayit.tamamlandi);
+
+      const metin =
+        `${kayit.baslik} ${kayit.tur} ${kayit.aciklama}`.toLocaleLowerCase(
+          "tr-TR"
+        );
+
+      const aramaUygun =
+        !aranan || metin.includes(aranan);
+
+      return durumUygun && aramaUygun;
+    });
+  }, [kayitlar, arama, durum]);
+
+  const bekleyenSayisi = kayitlar.filter(
+    (kayit) => !kayit.tamamlandi
+  ).length;
+
+  const tamamlananSayisi = kayitlar.filter(
+    (kayit) => kayit.tamamlandi
+  ).length;
+
+  const gecikenSayisi = kayitlar.filter(
+    (kayit) =>
+      !kayit.tamamlandi && kalanGun(kayit.tarih) < 0
+  ).length;
+
+  const kartStili = {
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "18px",
+    padding: "20px",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
+  };
+
+  const alanStili = {
+    width: "100%",
+    padding: "12px",
+    boxSizing: "border-box" as const,
+    border: "1px solid #d1d5db",
+    borderRadius: "10px",
+    background: "#ffffff",
+    fontSize: "15px",
+  };
+
+  const yesilButon = {
+    border: "none",
+    borderRadius: "10px",
+    padding: "13px 18px",
+    background: "#174d38",
+    color: "#ffffff",
+    fontWeight: "bold",
+    cursor: "pointer",
+  };
+
+  const griButon = {
+    border: "1px solid #d1d5db",
+    borderRadius: "9px",
+    padding: "9px 12px",
+    background: "#ffffff",
+    color: "#111827",
+    fontWeight: "bold",
+    cursor: "pointer",
+  };
+
+  const kirmiziButon = {
+    border: "none",
+    borderRadius: "9px",
+    padding: "9px 12px",
+    background: "#b91c1c",
+    color: "#ffffff",
+    fontWeight: "bold",
+    cursor: "pointer",
+  };
+
   return (
     <main
       style={{
-        maxWidth: "800px",
-        margin: "40px auto",
-        padding: "20px",
+        minHeight: "100vh",
+        background: "#f4f7f5",
+        padding: "30px 18px",
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <Link href="/">← Ana Sayfaya Dön</Link>
+      <div style={{ maxWidth: "1050px", margin: "0 auto" }}>
+        <Link href="/">← Ana Sayfaya Dön</Link>
 
-      <h1>📅 Takvim ve Hatırlatmalar</h1>
+        <h1 style={{ marginBottom: "6px" }}>
+          📅 Takvim ve Hatırlatmalar
+        </h1>
 
-      <hr />
+        <p
+          style={{
+            marginTop: 0,
+            marginBottom: "24px",
+            color: "#6b7280",
+          }}
+        >
+          Ödeme, fatura ve işletme hatırlatmalarını yönet.
+        </p>
 
-      <label>Başlık</label>
-      <br />
-      <input
-        type="text"
-        placeholder="Örneğin: Mudo ödemesi"
-        value={baslik}
-        onChange={(event) => setBaslik(event.target.value)}
-      />
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(190px, 1fr))",
+            gap: "14px",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Toplam kayıt
+            </small>
 
-      <br />
-      <br />
+            <h2 style={{ marginBottom: 0 }}>
+              {kayitlar.length}
+            </h2>
+          </div>
 
-      <label>Tarih</label>
-      <br />
-      <input
-        type="date"
-        value={tarih}
-        onChange={(event) => setTarih(event.target.value)}
-      />
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Bekleyen
+            </small>
 
-      <br />
-      <br />
-
-      <label>Tür</label>
-      <br />
-      <select
-        value={tur}
-        onChange={(event) => setTur(event.target.value)}
-      >
-        <option>Ödeme</option>
-        <option>Fatura</option>
-        <option>Vergi</option>
-        <option>Personel</option>
-        <option>Sipariş</option>
-        <option>Toplantı</option>
-        <option>Diğer</option>
-      </select>
-
-      <br />
-      <br />
-
-      <label>Açıklama</label>
-      <br />
-      <textarea
-        rows={4}
-        placeholder="İsteğe bağlı"
-        value={aciklama}
-        onChange={(event) => setAciklama(event.target.value)}
-      />
-
-      <br />
-      <br />
-
-      <button onClick={kaydet}>💾 Kaydet</button>
-
-      <hr style={{ margin: "30px 0" }} />
-
-      <h2>Yaklaşan Kayıtlar</h2>
-
-      {kayitlar.length === 0 ? (
-        <p>Henüz takvim kaydı yok.</p>
-      ) : (
-        <div>
-          {kayitlar.map((kayit) => (
-            <div
-              key={kayit.id}
+            <h2
               style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: "12px",
-                padding: "16px",
-                marginBottom: "14px",
-                opacity: kayit.tamamlandi ? 0.55 : 1,
-                textDecoration: kayit.tamamlandi
-                  ? "line-through"
-                  : "none",
+                marginBottom: 0,
+                color: "#b45309",
               }}
             >
-              <strong>{kayit.baslik}</strong>
+              {bekleyenSayisi}
+            </h2>
+          </div>
 
-              <br />
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Tamamlanan
+            </small>
 
-              📅 {tarihiYaz(kayit.tarih)}
+            <h2
+              style={{
+                marginBottom: 0,
+                color: "#15803d",
+              }}
+            >
+              {tamamlananSayisi}
+            </h2>
+          </div>
 
-              <br />
+          <div style={kartStili}>
+            <small style={{ color: "#6b7280" }}>
+              Geciken
+            </small>
 
-              Tür: {kayit.tur}
+            <h2
+              style={{
+                marginBottom: 0,
+                color:
+                  gecikenSayisi > 0 ? "#b91c1c" : "#15803d",
+              }}
+            >
+              {gecikenSayisi}
+            </h2>
+          </div>
+        </section>
 
-              <br />
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(300px, 1fr))",
+            gap: "18px",
+            marginBottom: "24px",
+          }}
+        >
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              ➕ Yeni Hatırlatma
+            </h2>
 
-              Açıklama: {kayit.aciklama || "-"}
+            <label>
+              <strong>Başlık</strong>
+            </label>
 
-              <br />
-              <br />
+            <input
+              type="text"
+              placeholder="Örneğin: Mudo ödemesi"
+              value={baslik}
+              onChange={(event) =>
+                setBaslik(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
 
-              <button
-                onClick={() => tamamlandiDegistir(kayit.id)}
-              >
-                {kayit.tamamlandi
-                  ? "↩️ Tamamlanmadı Yap"
-                  : "✅ Tamamlandı"}
-              </button>
+            <label>
+              <strong>Tarih</strong>
+            </label>
 
-              {" "}
+            <input
+              type="date"
+              value={tarih}
+              onChange={(event) =>
+                setTarih(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
 
-              <button onClick={() => sil(kayit.id)}>
-                🗑️ Sil
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+            <label>
+              <strong>Tür</strong>
+            </label>
+
+            <select
+              value={tur}
+              onChange={(event) =>
+                setTur(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            >
+              {turler.map((turAdi) => (
+                <option key={turAdi} value={turAdi}>
+                  {turAdi}
+                </option>
+              ))}
+            </select>
+
+            <label>
+              <strong>Açıklama</strong>
+            </label>
+
+            <textarea
+              rows={4}
+              placeholder="İsteğe bağlı"
+              value={aciklama}
+              onChange={(event) =>
+                setAciklama(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "16px",
+                resize: "vertical",
+              }}
+            />
+
+            <button onClick={kaydet} style={yesilButon}>
+              💾 Kaydet
+            </button>
+          </div>
+
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              🔍 Kayıtları Filtrele
+            </h2>
+
+            <label>
+              <strong>Arama</strong>
+            </label>
+
+            <input
+              type="text"
+              placeholder="Başlık, tür veya açıklama ara"
+              value={arama}
+              onChange={(event) =>
+                setArama(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+                marginBottom: "14px",
+              }}
+            />
+
+            <label>
+              <strong>Durum</strong>
+            </label>
+
+            <select
+              value={durum}
+              onChange={(event) =>
+                setDurum(
+                  event.target.value as
+                    | "Tümü"
+                    | "Bekleyen"
+                    | "Tamamlanan"
+                )
+              }
+              style={{
+                ...alanStili,
+                marginTop: "7px",
+              }}
+            >
+              <option>Tümü</option>
+              <option>Bekleyen</option>
+              <option>Tamamlanan</option>
+            </select>
+          </div>
+        </section>
+
+        <section style={kartStili}>
+          <h2 style={{ marginTop: 0 }}>
+            Takvim Kayıtları ({filtrelenmisKayitlar.length})
+          </h2>
+
+          {filtrelenmisKayitlar.length === 0 ? (
+            <p style={{ color: "#6b7280" }}>
+              Kayıt bulunamadı.
+            </p>
+          ) : (
+            filtrelenmisKayitlar.map((kayit) => {
+              const gun = kalanGun(kayit.tarih);
+              const gecikmis =
+                !kayit.tamamlandi && gun < 0;
+
+              const gunMetni = kayit.tamamlandi
+                ? "Tamamlandı"
+                : gun === 0
+                ? "Bugün"
+                : gun === 1
+                ? "Yarın"
+                : gun > 1
+                ? `${gun} gün kaldı`
+                : `${Math.abs(gun)} gün gecikti`;
+
+              return (
+                <div
+                  key={kayit.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "minmax(190px, 1fr) auto",
+                    gap: "18px",
+                    borderBottom:
+                      "1px solid #e5e7eb",
+                    padding: "17px 0",
+                    opacity: kayit.tamamlandi ? 0.58 : 1,
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <strong
+                        style={{
+                          textDecoration: kayit.tamamlandi
+                            ? "line-through"
+                            : "none",
+                        }}
+                      >
+                        {kayit.baslik}
+                      </strong>
+
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "4px 8px",
+                          borderRadius: "999px",
+                          background: gecikmis
+                            ? "#fee2e2"
+                            : kayit.tamamlandi
+                            ? "#dcfce7"
+                            : "#fef3c7",
+                          color: gecikmis
+                            ? "#b91c1c"
+                            : kayit.tamamlandi
+                            ? "#15803d"
+                            : "#92400e",
+                          fontSize: "12px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        {gunMetni}
+                      </span>
+                    </div>
+
+                    <p
+                      style={{
+                        margin: "8px 0 5px",
+                        color: "#6b7280",
+                      }}
+                    >
+                      📅 {tarihiYaz(kayit.tarih)} · {kayit.tur}
+                    </p>
+
+                    <p style={{ margin: 0 }}>
+                      {kayit.aciklama || "Açıklama yok"}
+                    </p>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "8px",
+                      alignItems: "flex-end",
+                    }}
+                  >
+                    <button
+                      onClick={() =>
+                        tamamlandiDegistir(kayit.id)
+                      }
+                      style={
+                        kayit.tamamlandi
+                          ? griButon
+                          : yesilButon
+                      }
+                    >
+                      {kayit.tamamlandi
+                        ? "↩️ Geri Al"
+                        : "✅ Tamamla"}
+                    </button>
+
+                    <button
+                      onClick={() => sil(kayit.id)}
+                      style={kirmiziButon}
+                    >
+                      🗑️ Sil
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </section>
+      </div>
     </main>
   );
 }
