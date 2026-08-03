@@ -36,8 +36,11 @@ type SatisKaydi = {
 
 export default function Satislar() {
   const [urunler, setUrunler] = useState<Urun[]>([]);
-  const [secilenUrunId, setSecilenUrunId] = useState<number | null>(null);
+  const [secilenUrunId, setSecilenUrunId] = useState<number | null>(
+    null
+  );
   const [adet, setAdet] = useState("1");
+  const [arama, setArama] = useState("");
 
   const [sepet, setSepet] = useState<SepetUrunu[]>([]);
   const [platform, setPlatform] = useState("Dükkân");
@@ -52,7 +55,9 @@ export default function Satislar() {
       localStorage.getItem("aristo-urunler") || "[]"
     );
 
-    const aktifUrunler = kayitliUrunler.filter((urun) => urun.aktif);
+    const aktifUrunler = kayitliUrunler.filter(
+      (urun) => urun.aktif
+    );
 
     setUrunler(aktifUrunler);
 
@@ -67,18 +72,34 @@ export default function Satislar() {
     setKayitlar(eskiSatislar);
   }, []);
 
+  const filtrelenmisUrunler = useMemo(() => {
+    const aranan = arama.trim().toLocaleLowerCase("tr-TR");
+
+    if (!aranan) {
+      return urunler;
+    }
+
+    return urunler.filter((urun) =>
+      urun.ad.toLocaleLowerCase("tr-TR").includes(aranan)
+    );
+  }, [urunler, arama]);
+
   const secilenUrun = urunler.find(
     (urun) => urun.id === secilenUrunId
   );
 
   const sepetAraToplam = useMemo(() => {
     return sepet.reduce(
-      (toplam, urun) => toplam + urun.adet * urun.birimFiyat,
+      (toplam, urun) =>
+        toplam + urun.adet * urun.birimFiyat,
       0
     );
   }, [sepet]);
 
-  const indirimTutari = Math.max(Number(indirim || 0), 0);
+  const indirimTutari = Math.max(
+    Number(indirim || 0),
+    0
+  );
 
   const genelToplam = Math.max(
     sepetAraToplam - indirimTutari,
@@ -90,8 +111,10 @@ export default function Satislar() {
     0
   );
 
-  function sepeteEkle() {
-    if (!secilenUrun) {
+  function sepeteEkle(urun?: Urun) {
+    const eklenecekUrun = urun || secilenUrun;
+
+    if (!eklenecekUrun) {
       alert("Ürün seç.");
       return;
     }
@@ -104,29 +127,32 @@ export default function Satislar() {
     }
 
     const urunSepette = sepet.find(
-      (urun) => urun.urunId === secilenUrun.id
+      (sepetUrunu) =>
+        sepetUrunu.urunId === eklenecekUrun.id
     );
 
     if (urunSepette) {
       setSepet(
-        sepet.map((urun) =>
-          urun.urunId === secilenUrun.id
+        sepet.map((sepetUrunu) =>
+          sepetUrunu.urunId === eklenecekUrun.id
             ? {
-                ...urun,
-                adet: urun.adet + urunAdedi,
+                ...sepetUrunu,
+                adet: sepetUrunu.adet + urunAdedi,
               }
-            : urun
+            : sepetUrunu
         )
       );
     } else {
       setSepet([
         ...sepet,
         {
-          urunId: secilenUrun.id,
-          urun: secilenUrun.ad,
-          kategori: secilenUrun.kategori,
+          urunId: eklenecekUrun.id,
+          urun: eklenecekUrun.ad,
+          kategori: eklenecekUrun.kategori,
           adet: urunAdedi,
-          birimFiyat: secilenUrun.satisFiyati,
+          birimFiyat: Number(
+            eklenecekUrun.satisFiyati || 0
+          ),
         },
       ]);
     }
@@ -134,7 +160,10 @@ export default function Satislar() {
     setAdet("1");
   }
 
-  function adetDegistir(urunId: number, yeniAdet: number) {
+  function adetDegistir(
+    urunId: number,
+    yeniAdet: number
+  ) {
     if (yeniAdet <= 0) {
       sepettenCikar(urunId);
       return;
@@ -152,6 +181,29 @@ export default function Satislar() {
     );
   }
 
+  function adetArtir(urunId: number) {
+    setSepet(
+      sepet.map((urun) =>
+        urun.urunId === urunId
+          ? {
+              ...urun,
+              adet: urun.adet + 1,
+            }
+          : urun
+      )
+    );
+  }
+
+  function adetAzalt(urunId: number) {
+    const urun = sepet.find(
+      (sepetUrunu) => sepetUrunu.urunId === urunId
+    );
+
+    if (!urun) return;
+
+    adetDegistir(urunId, urun.adet - 1);
+  }
+
   function sepettenCikar(urunId: number) {
     setSepet(
       sepet.filter((urun) => urun.urunId !== urunId)
@@ -159,7 +211,9 @@ export default function Satislar() {
   }
 
   function sepetiTemizle() {
-    const onay = window.confirm("Sepet temizlensin mi?");
+    const onay = window.confirm(
+      "Sepet temizlensin mi?"
+    );
 
     if (!onay) return;
 
@@ -174,13 +228,19 @@ export default function Satislar() {
       return;
     }
 
+    if (indirimTutari > sepetAraToplam) {
+      alert("İndirim ara toplamdan fazla olamaz.");
+      return;
+    }
+
     const islemId = Date.now();
     const tarih = new Date().toLocaleString("tr-TR");
 
     const yeniKayitlar: SatisKaydi[] = sepet.map(
       (sepetUrunu, sira) => {
         const urunAraToplam =
-          sepetUrunu.adet * sepetUrunu.birimFiyat;
+          sepetUrunu.adet *
+          sepetUrunu.birimFiyat;
 
         const urunIndirimi =
           sepetAraToplam > 0
@@ -208,7 +268,10 @@ export default function Satislar() {
       }
     );
 
-    const tumKayitlar = [...yeniKayitlar, ...kayitlar];
+    const tumKayitlar = [
+      ...yeniKayitlar,
+      ...kayitlar,
+    ];
 
     setKayitlar(tumKayitlar);
 
@@ -223,7 +286,9 @@ export default function Satislar() {
     setIndirim("0");
     setNot("");
 
-    alert(`Satış kaydedildi: ${para(genelToplam)}`);
+    alert(
+      `Satış kaydedildi: ${para(genelToplam)}`
+    );
   }
 
   function islemiSil(islemId: number) {
@@ -246,10 +311,12 @@ export default function Satislar() {
   }
 
   const islemler = useMemo(() => {
-    const gruplar: Record<number, SatisKaydi[]> = {};
+    const gruplar: Record<number, SatisKaydi[]> =
+      {};
 
     kayitlar.forEach((kayit) => {
-      const grupId = kayit.islemId || kayit.id;
+      const grupId =
+        kayit.islemId || kayit.id;
 
       if (!gruplar[grupId]) {
         gruplar[grupId] = [];
@@ -261,25 +328,42 @@ export default function Satislar() {
     return Object.entries(gruplar)
       .map(([islemId, urunKayitlari]) => ({
         islemId: Number(islemId),
-        tarih: urunKayitlari[0]?.tarih || "-",
-        platform: urunKayitlari[0]?.platform || "-",
-        odemeTipi: urunKayitlari[0]?.odemeTipi || "-",
+        tarih:
+          urunKayitlari[0]?.tarih || "-",
+        platform:
+          urunKayitlari[0]?.platform || "-",
+        odemeTipi:
+          urunKayitlari[0]?.odemeTipi || "-",
         not: urunKayitlari[0]?.not || "",
         urunler: urunKayitlari,
         toplam: urunKayitlari.reduce(
           (toplam, kayit) =>
-            toplam + Number(kayit.toplam || 0),
+            toplam +
+            Number(kayit.toplam || 0),
           0
         ),
       }))
       .sort((a, b) => b.islemId - a.islemId);
   }, [kayitlar]);
 
-  const genelSatisToplami = kayitlar.reduce(
-    (toplam, kayit) =>
-      toplam + Number(kayit.toplam || 0),
-    0
-  );
+  const bugun = new Date();
+
+  const bugunkuSatisToplami = kayitlar
+    .filter((kayit) => {
+      const tarih = new Date(kayit.id);
+
+      return (
+        tarih.getDate() === bugun.getDate() &&
+        tarih.getMonth() === bugun.getMonth() &&
+        tarih.getFullYear() ===
+          bugun.getFullYear()
+      );
+    })
+    .reduce(
+      (toplam, kayit) =>
+        toplam + Number(kayit.toplam || 0),
+      0
+    );
 
   const para = (tutar: number) =>
     new Intl.NumberFormat("tr-TR", {
@@ -287,286 +371,693 @@ export default function Satislar() {
       currency: "TRY",
     }).format(tutar);
 
+  const kartStili = {
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "18px",
+    padding: "20px",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
+  };
+
   const alanStili = {
     width: "100%",
-    padding: "11px",
+    padding: "12px",
     boxSizing: "border-box" as const,
     border: "1px solid #d1d5db",
-    borderRadius: "8px",
+    borderRadius: "10px",
+    fontSize: "15px",
+    background: "#ffffff",
+  };
+
+  const yesilButon = {
+    border: "none",
+    borderRadius: "10px",
+    padding: "13px 18px",
+    background: "#174d38",
+    color: "#ffffff",
+    fontWeight: "bold",
+    cursor: "pointer",
+  };
+
+  const kirmiziButon = {
+    border: "none",
+    borderRadius: "10px",
+    padding: "13px 18px",
+    background: "#b91c1c",
+    color: "#ffffff",
+    fontWeight: "bold",
+    cursor: "pointer",
+  };
+
+  const griButon = {
+    border: "1px solid #d1d5db",
+    borderRadius: "9px",
+    padding: "8px 12px",
+    background: "#ffffff",
+    color: "#111827",
+    fontWeight: "bold",
+    cursor: "pointer",
   };
 
   return (
     <main
       style={{
-        maxWidth: "950px",
-        margin: "40px auto",
-        padding: "20px",
+        minHeight: "100vh",
+        background: "#f4f7f5",
+        padding: "30px 18px",
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <Link href="/">← Ana Sayfaya Dön</Link>
-
-      <h1>🥪 Satış Girişi</h1>
-
-      <section
+      <div
         style={{
-          display: "grid",
-          gridTemplateColumns:
-            "repeat(auto-fit, minmax(260px, 1fr))",
-          gap: "18px",
+          maxWidth: "1100px",
+          margin: "0 auto",
         }}
       >
-        <div
-          style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: "14px",
-            padding: "18px",
-          }}
-        >
-          <h2>Ürün Ekle</h2>
-
-          <label>Ürün</label>
-          <br />
-
-          <select
-            value={secilenUrunId ?? ""}
-            onChange={(event) =>
-              setSecilenUrunId(Number(event.target.value))
-            }
-            style={alanStili}
-          >
-            {urunler.map((urun) => (
-              <option key={urun.id} value={urun.id}>
-                {urun.ad} — {para(urun.satisFiyati)}
-              </option>
-            ))}
-          </select>
-
-          <br />
-          <br />
-
-          <label>Adet</label>
-          <br />
-
-          <input
-            type="number"
-            min="1"
-            value={adet}
-            onChange={(event) => setAdet(event.target.value)}
-            style={alanStili}
-          />
-
-          <br />
-          <br />
-
-          <button onClick={sepeteEkle}>
-            ➕ Sepete Ekle
-          </button>
-        </div>
+        <Link href="/">
+          ← Ana Sayfaya Dön
+        </Link>
 
         <div
           style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: "14px",
-            padding: "18px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: "20px",
+            flexWrap: "wrap",
+            marginBottom: "24px",
           }}
         >
-          <h2>Satış Bilgileri</h2>
+          <div>
+            <h1 style={{ marginBottom: "6px" }}>
+              🥪 Satış Girişi
+            </h1>
 
-          <label>Platform</label>
-          <br />
-
-          <select
-            value={platform}
-            onChange={(event) =>
-              setPlatform(event.target.value)
-            }
-            style={alanStili}
-          >
-            <option>Dükkân</option>
-            <option>GetirYemek</option>
-            <option>Trendyol</option>
-            <option>Yemeksepeti</option>
-            <option>Telefon Siparişi</option>
-          </select>
-
-          <br />
-          <br />
-
-          <label>Ödeme Tipi</label>
-          <br />
-
-          <select
-            value={odemeTipi}
-            onChange={(event) =>
-              setOdemeTipi(event.target.value)
-            }
-            style={alanStili}
-          >
-            <option>Kredi Kartı</option>
-            <option>Nakit</option>
-            <option>Online Ödeme</option>
-            <option>Diğer</option>
-          </select>
-
-          <br />
-          <br />
-
-          <label>Toplam İndirim (₺)</label>
-          <br />
-
-          <input
-            type="number"
-            min="0"
-            value={indirim}
-            onChange={(event) =>
-              setIndirim(event.target.value)
-            }
-            style={alanStili}
-          />
-
-          <br />
-          <br />
-
-          <label>Not</label>
-          <br />
-
-          <input
-            type="text"
-            value={not}
-            onChange={(event) => setNot(event.target.value)}
-            placeholder="İsteğe bağlı"
-            style={alanStili}
-          />
-        </div>
-      </section>
-
-      <hr style={{ margin: "30px 0" }} />
-
-      <h2>🛒 Sepet</h2>
-
-      {sepet.length === 0 ? (
-        <p>Sepet boş.</p>
-      ) : (
-        <>
-          {sepet.map((urun) => (
-            <div
-              key={urun.urunId}
+            <p
               style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "minmax(180px, 1fr) 90px 130px 80px",
-                gap: "10px",
-                alignItems: "center",
-                borderBottom: "1px solid #e5e7eb",
-                padding: "12px 0",
+                margin: 0,
+                color: "#6b7280",
               }}
             >
-              <div>
-                <strong>{urun.urun}</strong>
-                <br />
-                <small>{para(urun.birimFiyat)}</small>
-              </div>
-
-              <input
-                type="number"
-                min="1"
-                value={urun.adet}
-                onChange={(event) =>
-                  adetDegistir(
-                    urun.urunId,
-                    Number(event.target.value)
-                  )
-                }
-                style={{ width: "70px" }}
-              />
-
-              <strong>
-                {para(urun.adet * urun.birimFiyat)}
-              </strong>
-
-              <button
-                onClick={() => sepettenCikar(urun.urunId)}
-              >
-                Sil
-              </button>
-            </div>
-          ))}
-
-          <div
-            style={{
-              marginTop: "20px",
-              textAlign: "right",
-            }}
-          >
-            <p>Toplam ürün: {toplamAdet} adet</p>
-            <p>Ara toplam: {para(sepetAraToplam)}</p>
-            <p>İndirim: {para(indirimTutari)}</p>
-            <h2>Ödenecek: {para(genelToplam)}</h2>
-
-            <button onClick={satisiKaydet}>
-              💾 Satışı Tamamla
-            </button>
-
-            {" "}
-
-            <button onClick={sepetiTemizle}>
-              Sepeti Temizle
-            </button>
+              Ürünleri sepete ekle ve satışı tamamla.
+            </p>
           </div>
-        </>
-      )}
 
-      <hr style={{ margin: "30px 0" }} />
-
-      <h2>
-        Genel Satış Toplamı: {para(genelSatisToplami)}
-      </h2>
-
-      <h2>Son Satışlar</h2>
-
-      {islemler.length === 0 ? (
-        <p>Henüz satış yok.</p>
-      ) : (
-        islemler.map((islem) => (
           <div
-            key={islem.islemId}
             style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: "14px",
-              padding: "16px",
-              marginBottom: "14px",
+              ...kartStili,
+              minWidth: "220px",
+              padding: "16px 20px",
             }}
           >
-            <strong>{islem.tarih}</strong>
+            <small
+              style={{
+                color: "#6b7280",
+              }}
+            >
+              Bugünkü satış
+            </small>
 
-            <br />
+            <h2
+              style={{
+                margin: "6px 0 0",
+                color: "#174d38",
+              }}
+            >
+              {para(bugunkuSatisToplami)}
+            </h2>
+          </div>
+        </div>
 
-            {islem.platform} — {islem.odemeTipi}
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(auto-fit, minmax(300px, 1fr))",
+            gap: "18px",
+            marginBottom: "22px",
+          }}
+        >
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              Ürün Ekle
+            </h2>
 
-            <ul>
-              {islem.urunler.map((urun) => (
-                <li key={urun.id}>
-                  {urun.urun} x{urun.adet} —{" "}
-                  {para(urun.toplam)}
-                </li>
-              ))}
-            </ul>
+            <label>Ürün ara</label>
 
-            <strong>Toplam: {para(islem.toplam)}</strong>
+            <input
+              type="text"
+              value={arama}
+              onChange={(event) =>
+                setArama(event.target.value)
+              }
+              placeholder="Örneğin: Aristo"
+              style={{
+                ...alanStili,
+                marginTop: "6px",
+                marginBottom: "14px",
+              }}
+            />
 
-            {islem.not && (
-              <p>Not: {islem.not}</p>
-            )}
+            <label>Ürün</label>
+
+            <select
+              value={secilenUrunId ?? ""}
+              onChange={(event) =>
+                setSecilenUrunId(
+                  Number(event.target.value)
+                )
+              }
+              style={{
+                ...alanStili,
+                marginTop: "6px",
+                marginBottom: "14px",
+              }}
+            >
+              {filtrelenmisUrunler.length ===
+              0 ? (
+                <option value="">
+                  Ürün bulunamadı
+                </option>
+              ) : (
+                filtrelenmisUrunler.map(
+                  (urun) => (
+                    <option
+                      key={urun.id}
+                      value={urun.id}
+                    >
+                      {urun.ad} —{" "}
+                      {para(
+                        Number(
+                          urun.satisFiyati || 0
+                        )
+                      )}
+                    </option>
+                  )
+                )
+              )}
+            </select>
+
+            <label>Adet</label>
+
+            <input
+              type="number"
+              min="1"
+              value={adet}
+              onChange={(event) =>
+                setAdet(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "6px",
+                marginBottom: "16px",
+              }}
+            />
 
             <button
-              onClick={() => islemiSil(islem.islemId)}
+              onClick={() => sepeteEkle()}
+              style={{
+                ...yesilButon,
+                width: "100%",
+              }}
             >
-              🗑️ İşlemi Sil
+              ➕ Sepete Ekle
             </button>
+
+            {filtrelenmisUrunler.length >
+              0 && (
+              <>
+                <h3
+                  style={{
+                    marginTop: "24px",
+                  }}
+                >
+                  Hızlı seçim
+                </h3>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(130px, 1fr))",
+                    gap: "10px",
+                  }}
+                >
+                  {filtrelenmisUrunler
+                    .slice(0, 8)
+                    .map((urun) => (
+                      <button
+                        key={urun.id}
+                        onClick={() =>
+                          sepeteEkle(urun)
+                        }
+                        style={{
+                          ...griButon,
+                          textAlign: "left",
+                        }}
+                      >
+                        {urun.ad}
+                        <br />
+                        <small>
+                          {para(
+                            Number(
+                              urun.satisFiyati ||
+                                0
+                            )
+                          )}
+                        </small>
+                      </button>
+                    ))}
+                </div>
+              </>
+            )}
           </div>
-        ))
-      )}
+
+          <div style={kartStili}>
+            <h2 style={{ marginTop: 0 }}>
+              Satış Bilgileri
+            </h2>
+
+            <label>Platform</label>
+
+            <select
+              value={platform}
+              onChange={(event) =>
+                setPlatform(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "6px",
+                marginBottom: "14px",
+              }}
+            >
+              <option>Dükkân</option>
+              <option>GetirYemek</option>
+              <option>Trendyol</option>
+              <option>Yemeksepeti</option>
+              <option>Telefon Siparişi</option>
+            </select>
+
+            <label>Ödeme Tipi</label>
+
+            <select
+              value={odemeTipi}
+              onChange={(event) =>
+                setOdemeTipi(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "6px",
+                marginBottom: "14px",
+              }}
+            >
+              <option>Kredi Kartı</option>
+              <option>Nakit</option>
+              <option>Online Ödeme</option>
+              <option>Diğer</option>
+            </select>
+
+            <label>Toplam İndirim (₺)</label>
+
+            <input
+              type="number"
+              min="0"
+              value={indirim}
+              onChange={(event) =>
+                setIndirim(event.target.value)
+              }
+              style={{
+                ...alanStili,
+                marginTop: "6px",
+                marginBottom: "14px",
+              }}
+            />
+
+            <label>Not</label>
+
+            <textarea
+              value={not}
+              onChange={(event) =>
+                setNot(event.target.value)
+              }
+              placeholder="İsteğe bağlı"
+              rows={4}
+              style={{
+                ...alanStili,
+                marginTop: "6px",
+                resize: "vertical",
+              }}
+            />
+          </div>
+        </section>
+
+        <section
+          style={{
+            ...kartStili,
+            marginBottom: "24px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "15px",
+              flexWrap: "wrap",
+              borderBottom: "1px solid #e5e7eb",
+              paddingBottom: "16px",
+              marginBottom: "10px",
+            }}
+          >
+            <div>
+              <h2
+                style={{
+                  margin: "0 0 5px",
+                }}
+              >
+                🛒 Sepet
+              </h2>
+
+              <small
+                style={{
+                  color: "#6b7280",
+                }}
+              >
+                {toplamAdet} ürün
+              </small>
+            </div>
+
+            <div
+              style={{
+                textAlign: "right",
+              }}
+            >
+              <small
+                style={{
+                  color: "#6b7280",
+                }}
+              >
+                Ödenecek
+              </small>
+
+              <h2
+                style={{
+                  margin: "5px 0 0",
+                  color: "#174d38",
+                }}
+              >
+                {para(genelToplam)}
+              </h2>
+            </div>
+          </div>
+
+          {sepet.length === 0 ? (
+            <p
+              style={{
+                color: "#6b7280",
+                padding: "20px 0",
+              }}
+            >
+              Sepet boş.
+            </p>
+          ) : (
+            <>
+              {sepet.map((urun) => (
+                <div
+                  key={urun.urunId}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "minmax(160px, 1fr) auto auto",
+                    gap: "14px",
+                    alignItems: "center",
+                    borderBottom:
+                      "1px solid #e5e7eb",
+                    padding: "14px 0",
+                  }}
+                >
+                  <div>
+                    <strong>{urun.urun}</strong>
+
+                    <br />
+
+                    <small
+                      style={{
+                        color: "#6b7280",
+                      }}
+                    >
+                      {para(
+                        urun.birimFiyat
+                      )}{" "}
+                      / adet
+                    </small>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <button
+                      onClick={() =>
+                        adetAzalt(
+                          urun.urunId
+                        )
+                      }
+                      style={griButon}
+                    >
+                      −
+                    </button>
+
+                    <input
+                      type="number"
+                      min="1"
+                      value={urun.adet}
+                      onChange={(event) =>
+                        adetDegistir(
+                          urun.urunId,
+                          Number(
+                            event.target.value
+                          )
+                        )
+                      }
+                      style={{
+                        width: "58px",
+                        padding: "8px",
+                        textAlign: "center",
+                        border:
+                          "1px solid #d1d5db",
+                        borderRadius: "8px",
+                      }}
+                    />
+
+                    <button
+                      onClick={() =>
+                        adetArtir(
+                          urun.urunId
+                        )
+                      }
+                      style={griButon}
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      textAlign: "right",
+                    }}
+                  >
+                    <strong>
+                      {para(
+                        urun.adet *
+                          urun.birimFiyat
+                      )}
+                    </strong>
+
+                    <br />
+
+                    <button
+                      onClick={() =>
+                        sepettenCikar(
+                          urun.urunId
+                        )
+                      }
+                      style={{
+                        border: "none",
+                        background:
+                          "transparent",
+                        color: "#b91c1c",
+                        cursor: "pointer",
+                        marginTop: "6px",
+                      }}
+                    >
+                      Sil
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <div
+                style={{
+                  marginTop: "20px",
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit, minmax(190px, 1fr))",
+                  gap: "12px",
+                }}
+              >
+                <div>
+                  <p>
+                    Ara toplam:{" "}
+                    <strong>
+                      {para(
+                        sepetAraToplam
+                      )}
+                    </strong>
+                  </p>
+
+                  <p>
+                    İndirim:{" "}
+                    <strong>
+                      {para(
+                        indirimTutari
+                      )}
+                    </strong>
+                  </p>
+
+                  <h2>
+                    Toplam:{" "}
+                    {para(genelToplam)}
+                  </h2>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                    justifyContent:
+                      "flex-end",
+                  }}
+                >
+                  <button
+                    onClick={satisiKaydet}
+                    style={{
+                      ...yesilButon,
+                      width: "100%",
+                      fontSize: "17px",
+                    }}
+                  >
+                    💾 Satışı Tamamla
+                  </button>
+
+                  <button
+                    onClick={sepetiTemizle}
+                    style={{
+                      ...kirmiziButon,
+                      width: "100%",
+                    }}
+                  >
+                    🗑️ Sepeti Temizle
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+
+        <section style={kartStili}>
+          <h2 style={{ marginTop: 0 }}>
+            Son Satışlar
+          </h2>
+
+          {islemler.length === 0 ? (
+            <p>Henüz satış yok.</p>
+          ) : (
+            islemler.slice(0, 10).map((islem) => (
+              <div
+                key={islem.islemId}
+                style={{
+                  borderBottom:
+                    "1px solid #e5e7eb",
+                  padding: "16px 0",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent:
+                      "space-between",
+                    alignItems:
+                      "flex-start",
+                    gap: "15px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div>
+                    <strong>
+                      {islem.tarih}
+                    </strong>
+
+                    <br />
+
+                    <small
+                      style={{
+                        color: "#6b7280",
+                      }}
+                    >
+                      {islem.platform} —{" "}
+                      {islem.odemeTipi}
+                    </small>
+                  </div>
+
+                  <strong
+                    style={{
+                      color: "#174d38",
+                    }}
+                  >
+                    {para(islem.toplam)}
+                  </strong>
+                </div>
+
+                <ul>
+                  {islem.urunler.map(
+                    (urun) => (
+                      <li key={urun.id}>
+                        {urun.urun} x
+                        {urun.adet} —{" "}
+                        {para(
+                          urun.toplam
+                        )}
+                      </li>
+                    )
+                  )}
+                </ul>
+
+                {islem.not && (
+                  <p>
+                    Not: {islem.not}
+                  </p>
+                )}
+
+                <button
+                  onClick={() =>
+                    islemiSil(
+                      islem.islemId
+                    )
+                  }
+                  style={kirmiziButon}
+                >
+                  🗑️ İşlemi Sil
+                </button>
+              </div>
+            ))
+          )}
+        </section>
+      </div>
     </main>
   );
 }
