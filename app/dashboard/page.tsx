@@ -2,6 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 type SatisKaydi = {
   id: number;
@@ -36,14 +46,18 @@ export default function Dashboard() {
 
   const bugun = new Date();
 
-  function bugununKaydiMi(id: number) {
+  function ayniGunMu(id: number, hedefTarih: Date) {
     const tarih = new Date(id);
 
     return (
-      tarih.getDate() === bugun.getDate() &&
-      tarih.getMonth() === bugun.getMonth() &&
-      tarih.getFullYear() === bugun.getFullYear()
+      tarih.getDate() === hedefTarih.getDate() &&
+      tarih.getMonth() === hedefTarih.getMonth() &&
+      tarih.getFullYear() === hedefTarih.getFullYear()
     );
+  }
+
+  function bugununKaydiMi(id: number) {
+    return ayniGunMu(id, bugun);
   }
 
   function buAyinKaydiMi(id: number) {
@@ -103,47 +117,107 @@ export default function Dashboard() {
   const urunSiralamasi = useMemo(() => {
     const sonuc: Record<string, number> = {};
 
-    bugunkuSatislar.forEach((kayit) => {
-      const urun = kayit.urun || "Eski Satış";
-      const adet = Number(kayit.adet || 1);
+    satislar
+      .filter((kayit) => {
+        const tarih = new Date(kayit.id);
 
-      sonuc[urun] = (sonuc[urun] || 0) + adet;
-    });
+        return (
+          tarih.getDate() === new Date().getDate() &&
+          tarih.getMonth() === new Date().getMonth() &&
+          tarih.getFullYear() === new Date().getFullYear()
+        );
+      })
+      .forEach((kayit) => {
+        const urun = kayit.urun || "Eski Satış";
+        const adet = Number(kayit.adet || 1);
+
+        sonuc[urun] = (sonuc[urun] || 0) + adet;
+      });
 
     return Object.entries(sonuc)
       .map(([urun, adet]) => ({ urun, adet }))
       .sort((a, b) => b.adet - a.adet);
-  }, [bugunkuSatislar]);
+  }, [satislar]);
 
   const platformSiralamasi = useMemo(() => {
     const sonuc: Record<string, number> = {};
 
-    bugunkuSatislar.forEach((kayit) => {
-      const platform = kayit.platform || "Belirtilmemiş";
-      const tutar = Number(kayit.toplam || 0);
+    satislar
+      .filter((kayit) => {
+        const tarih = new Date(kayit.id);
 
-      sonuc[platform] = (sonuc[platform] || 0) + tutar;
-    });
+        return (
+          tarih.getDate() === new Date().getDate() &&
+          tarih.getMonth() === new Date().getMonth() &&
+          tarih.getFullYear() === new Date().getFullYear()
+        );
+      })
+      .forEach((kayit) => {
+        const platform = kayit.platform || "Belirtilmemiş";
+        const tutar = Number(kayit.toplam || 0);
+
+        sonuc[platform] = (sonuc[platform] || 0) + tutar;
+      });
 
     return Object.entries(sonuc)
       .map(([platform, tutar]) => ({ platform, tutar }))
       .sort((a, b) => b.tutar - a.tutar);
-  }, [bugunkuSatislar]);
+  }, [satislar]);
 
   const odemeSiralamasi = useMemo(() => {
     const sonuc: Record<string, number> = {};
 
-    bugunkuSatislar.forEach((kayit) => {
-      const odeme = kayit.odemeTipi || "Belirtilmemiş";
-      const tutar = Number(kayit.toplam || 0);
+    satislar
+      .filter((kayit) => {
+        const tarih = new Date(kayit.id);
 
-      sonuc[odeme] = (sonuc[odeme] || 0) + tutar;
-    });
+        return (
+          tarih.getDate() === new Date().getDate() &&
+          tarih.getMonth() === new Date().getMonth() &&
+          tarih.getFullYear() === new Date().getFullYear()
+        );
+      })
+      .forEach((kayit) => {
+        const odeme = kayit.odemeTipi || "Belirtilmemiş";
+        const tutar = Number(kayit.toplam || 0);
+
+        sonuc[odeme] = (sonuc[odeme] || 0) + tutar;
+      });
 
     return Object.entries(sonuc)
       .map(([odeme, tutar]) => ({ odeme, tutar }))
       .sort((a, b) => b.tutar - a.tutar);
-  }, [bugunkuSatislar]);
+  }, [satislar]);
+
+  const haftalikGrafik = useMemo(() => {
+    return Array.from({ length: 7 }, (_, index) => {
+      const tarih = new Date();
+      tarih.setHours(0, 0, 0, 0);
+      tarih.setDate(tarih.getDate() - (6 - index));
+
+      const ciro = satislar
+        .filter((kayit) => ayniGunMu(kayit.id, tarih))
+        .reduce(
+          (toplam, kayit) => toplam + Number(kayit.toplam || 0),
+          0
+        );
+
+      const gider = giderler
+        .filter((kayit) => ayniGunMu(kayit.id, tarih))
+        .reduce(
+          (toplam, kayit) => toplam + Number(kayit.tutar || 0),
+          0
+        );
+
+      return {
+        gun: tarih.toLocaleDateString("tr-TR", {
+          weekday: "short",
+        }),
+        ciro,
+        gider,
+      };
+    });
+  }, [satislar, giderler]);
 
   const sonSatislar = [...satislar]
     .sort((a, b) => b.id - a.id)
@@ -246,6 +320,43 @@ export default function Dashboard() {
             >
               {para(buAykiNet)}
             </h2>
+          </div>
+        </section>
+
+        <section
+          style={{
+            ...kartStili,
+            marginBottom: "30px",
+          }}
+        >
+          <h2>📈 Son 7 Gün: Ciro ve Gider</h2>
+
+          <div style={{ width: "100%", height: "320px" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={haftalikGrafik}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="gun" />
+                <YAxis />
+                <Tooltip
+                  formatter={(deger) =>
+                    para(Number(deger || 0))
+                  }
+                />
+                <Legend />
+                <Bar
+                  dataKey="ciro"
+                  name="Ciro"
+                  fill="#15803d"
+                  radius={[6, 6, 0, 0]}
+                />
+                <Bar
+                  dataKey="gider"
+                  name="Gider"
+                  fill="#b91c1c"
+                  radius={[6, 6, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </section>
 
