@@ -17,6 +17,7 @@ type TarihliKayit = {
 type SatisKaydi = TarihliKayit & {
   adisyon?: string;
   urun?: string;
+  kategori?: string;
   platform?: string;
   odemeTipi?: string;
   adet?: number;
