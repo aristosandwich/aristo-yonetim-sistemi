@@ -273,6 +273,9 @@ export default function Home() {
   const [kasaKapanislari, setKasaKapanislari] =
     useState<KasaKapanisi[]>([]);
 
+  const [kasadakiPara, setKasadakiPara] =
+    useState(0);
+
   useEffect(() => {
     function verileriYukle() {
       setSatislar(
@@ -290,6 +293,14 @@ export default function Home() {
       setKasaKapanislari(
         depodanOku<KasaKapanisi>(
           "aristo-kasa-kapanislari"
+        )
+      );
+
+      setKasadakiPara(
+        Number(
+          localStorage.getItem(
+            "aristo-kasa"
+          ) || 0
         )
       );
     }
@@ -393,18 +404,14 @@ export default function Home() {
         bugunAnahtari()
     );
 
-  const kasadakiPara =
+  const kasadakiParaGoster =
     bugunkuKapanis
       ? Number(
           bugunkuKapanis.sayilanKasa ??
             bugunkuKapanis.beklenenKasa ??
             0
         )
-      : Number(
-          localStorage.getItem(
-            "aristo-kasa"
-          ) || 0
-        );
+      : kasadakiPara;
 
   const ozetKartlari = [
     {
@@ -445,7 +452,7 @@ export default function Home() {
     {
       ikon: "💵",
       baslik: "Kasadaki Para",
-      deger: para(kasadakiPara),
+      deger: para(kasadakiParaGoster),
       renk: "#7c5200",
       arkaPlan: "#fff8dc",
     },
