@@ -15,32 +15,24 @@ type TarihliKayit = {
 };
 
 type SatisKaydi = TarihliKayit & {
-  adisyon?: string;
-  urun?: string;
-  kategori?: string;
   platform?: string;
-  odemeTipi?: string;
-  adet?: number;
   toplam?: number;
-  nakitTutari?: number;
-  kartTutari?: number;
-  onlineTutari?: number;
 };
 
 type GiderKaydi = TarihliKayit & {
-  kategori?: string;
-  aciklama?: string;
-  odemeTipi?: "Nakit" | "Kart" | "Banka";
   tutar?: number;
 };
 
 type TahsilatKaydi = TarihliKayit & {
   platform?: string;
-  donem?: string;
   tutar?: number;
 };
 
-type DetayDonem = "Bugün" | "Dün" | "Tarih Seç";
+type KanalAdi =
+  | "Dükkân Satışları"
+  | "Yemeksepeti"
+  | "Trendyol"
+  | "Uber Eats";
 
 function depodanOku<T>(anahtar: string): T[] {
   try {
@@ -60,37 +52,8 @@ function para(tutar: number) {
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
     currency: "TRY",
+    maximumFractionDigits: 2,
   }).format(tutar);
-}
-
-function yerelTarihMetni(tarih: Date) {
-  const yil = tarih.getFullYear();
-  const ay = String(
-    tarih.getMonth() + 1
-  ).padStart(2, "0");
-  const gun = String(
-    tarih.getDate()
-  ).padStart(2, "0");
-
-  return `${yil}-${ay}-${gun}`;
-}
-
-function secilenTarihiOlustur(
-  tarihMetni: string
-) {
-  if (!tarihMetni) {
-    return null;
-  }
-
-  const [yil, ay, gun] = tarihMetni
-    .split("-")
-    .map(Number);
-
-  if (!yil || !ay || !gun) {
-    return null;
-  }
-
-  return new Date(yil, ay - 1, gun);
 }
 
 function kayitTarihi(kayit: TarihliKayit) {
@@ -106,19 +69,24 @@ function kayitTarihi(kayit: TarihliKayit) {
     return null;
   }
 
-  const tarih = new Date(anaDeger);
+  const dogrudan = new Date(anaDeger);
 
-  if (!Number.isNaN(tarih.getTime())) {
-    return tarih;
+  if (
+    !Number.isNaN(
+      dogrudan.getTime()
+    )
+  ) {
+    return dogrudan;
   }
 
   if (!kayit.tarih) {
     return null;
   }
 
-  const eslesme = kayit.tarih.match(
-    /(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/
-  );
+  const eslesme =
+    kayit.tarih.match(
+      /(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/
+    );
 
   if (!eslesme) {
     return null;
@@ -133,15 +101,12 @@ function kayitTarihi(kayit: TarihliKayit) {
   );
 }
 
-function ayniGunMu(a: Date, b: Date) {
-  return (
-    a.getDate() === b.getDate() &&
-    a.getMonth() === b.getMonth() &&
-    a.getFullYear() === b.getFullYear()
-  );
-}
+function buAyMi(
+  kayit: TarihliKayit
+) {
+  const tarih =
+    kayitTarihi(kayit);
 
-function buAyMi(tarih: Date | null) {
   if (!tarih) {
     return false;
   }
@@ -149,94 +114,75 @@ function buAyMi(tarih: Date | null) {
   const bugun = new Date();
 
   return (
-    tarih.getMonth() === bugun.getMonth() &&
-    tarih.getFullYear() === bugun.getFullYear()
+    tarih.getMonth() ===
+      bugun.getMonth() &&
+    tarih.getFullYear() ===
+      bugun.getFullYear()
   );
 }
 
-function detayTarihi(
-  donem: DetayDonem,
-  seciliTarih: string
-) {
-  const bugun = new Date();
-
-  if (donem === "Bugün") {
-    return bugun;
-  }
-
-  if (donem === "Dün") {
-    const dun = new Date(bugun);
-    dun.setDate(dun.getDate() - 1);
-    return dun;
-  }
-
-  return secilenTarihiOlustur(seciliTarih);
-}
-
-function platformSatisKaydiMi(
+function kanalBul(
   platform?: string
-) {
-  return [
-    "Getir",
-    "GetirYemek",
-    "Trendyol",
-    "Trendyol / Uber",
-    "Uber",
-    "Uber Eats",
-    "Yemeksepeti",
-  ].includes(platform || "");
+): KanalAdi | null {
+  const deger = (
+    platform || ""
+  ).toLocaleLowerCase("tr-TR");
+
+  if (
+    deger.includes(
+      "yemeksepeti"
+    )
+  ) {
+    return "Yemeksepeti";
+  }
+
+  if (
+    deger.includes(
+      "trendyol"
+    )
+  ) {
+    return "Trendyol";
+  }
+
+  if (
+    deger.includes("uber")
+  ) {
+    return "Uber Eats";
+  }
+
+  if (
+    deger.includes("getir")
+  ) {
+    return null;
+  }
+
+  return "Dükkân Satışları";
 }
 
 function ayBasligi() {
   const bugun = new Date();
 
-  const baslangic = new Date(
-    bugun.getFullYear(),
-    bugun.getMonth(),
-    1
-  );
-
-  const baslangicMetni =
-    new Intl.DateTimeFormat(
-      "tr-TR",
-      {
-        day: "numeric",
-      }
-    ).format(baslangic);
-
-  const bitisMetni =
-    new Intl.DateTimeFormat(
-      "tr-TR",
-      {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      }
-    ).format(bugun);
-
-  return `${baslangicMetni} – ${bitisMetni}`;
-}
-
-function gunBasligi(
-  donem: DetayDonem,
-  seciliTarih: string
-) {
-  const tarih =
-    detayTarihi(donem, seciliTarih);
-
-  if (!tarih) {
-    return "Tarih seçilmedi";
-  }
-
   return new Intl.DateTimeFormat(
     "tr-TR",
     {
-      day: "numeric",
       month: "long",
       year: "numeric",
-      weekday: "long",
     }
-  ).format(tarih);
+  ).format(bugun);
+}
+
+function yuzde(
+  deger: number,
+  toplam: number
+) {
+  if (toplam <= 0) {
+    return 0;
+  }
+
+  return (
+    (deger / toplam) *
+    100
+  );
 }
 
 export default function Raporlar() {
@@ -249,17 +195,6 @@ export default function Raporlar() {
   const [tahsilatlar, setTahsilatlar] =
     useState<TahsilatKaydi[]>([]);
 
-  const [detayAcik, setDetayAcik] =
-    useState(false);
-
-  const [detayDonem, setDetayDonem] =
-    useState<DetayDonem>("Bugün");
-
-  const [seciliTarih, setSeciliTarih] =
-    useState(() =>
-      yerelTarihMetni(new Date())
-    );
-
   useEffect(() => {
     function verileriYukle() {
       setSatislar(
@@ -271,12 +206,7 @@ export default function Raporlar() {
       setGiderler(
         depodanOku<GiderKaydi>(
           "aristo-giderler"
-        ).map((kayit) => ({
-          ...kayit,
-          odemeTipi:
-            kayit.odemeTipi ||
-            "Nakit",
-        }))
+        )
       );
 
       setTahsilatlar(
@@ -311,15 +241,11 @@ export default function Raporlar() {
     };
   }, []);
 
-  const aylikDukkanSatislari =
+  const aylikSatislar =
     useMemo(
       () =>
         satislar.filter(
-          (kayit) =>
-            !platformSatisKaydiMi(
-              kayit.platform
-            ) &&
-            buAyMi(kayitTarihi(kayit))
+          buAyMi
         ),
       [satislar]
     );
@@ -327,8 +253,8 @@ export default function Raporlar() {
   const aylikGiderler =
     useMemo(
       () =>
-        giderler.filter((kayit) =>
-          buAyMi(kayitTarihi(kayit))
+        giderler.filter(
+          buAyMi
         ),
       [giderler]
     );
@@ -336,302 +262,148 @@ export default function Raporlar() {
   const aylikTahsilatlar =
     useMemo(
       () =>
-        tahsilatlar.filter((kayit) =>
-          buAyMi(kayitTarihi(kayit))
+        tahsilatlar.filter(
+          buAyMi
         ),
       [tahsilatlar]
     );
 
-  const aylikDukkanSatisToplami =
-    aylikDukkanSatislari.reduce(
+  const toplamSatis =
+    aylikSatislar.reduce(
       (toplam, kayit) =>
         toplam +
-        Number(kayit.toplam || 0),
+        Number(
+          kayit.toplam || 0
+        ),
       0
     );
 
-  const aylikPlatformTahsilati =
+  const platformTahsilatlari =
     aylikTahsilatlar.reduce(
       (toplam, kayit) =>
         toplam +
-        Number(kayit.tutar || 0),
+        Number(
+          kayit.tutar || 0
+        ),
       0
     );
 
-  const aylikToplamParaGirisi =
-    aylikDukkanSatisToplami +
-    aylikPlatformTahsilati;
+  const dukkanSatislari =
+    aylikSatislar
+      .filter(
+        (kayit) =>
+          kanalBul(
+            kayit.platform
+          ) ===
+          "Dükkân Satışları"
+      )
+      .reduce(
+        (toplam, kayit) =>
+          toplam +
+          Number(
+            kayit.toplam || 0
+          ),
+        0
+      );
 
-  const aylikToplamGider =
+  /*
+    Platform satışları satış kayıtlarında tutuluyorsa
+    aşağıdaki dağılıma otomatik girer.
+
+    Toplam Gelir = dükkânda anında tahsil edilen satış
+    + platformlardan hesaba net yatan tahsilat.
+    Böylece platform satışı ve daha sonra yatan tahsilat
+    aynı anda iki kez gelir sayılmaz.
+  */
+  const toplamGelir =
+    dukkanSatislari +
+    platformTahsilatlari;
+
+  const toplamGider =
     aylikGiderler.reduce(
       (toplam, kayit) =>
         toplam +
-        Number(kayit.tutar || 0),
+        Number(
+          kayit.tutar || 0
+        ),
       0
     );
 
-  const aylikNetKalan =
-    aylikToplamParaGirisi -
-    aylikToplamGider;
+  const netKalan =
+    toplamGelir -
+    toplamGider;
 
-  const aylikIslemSayisi =
-    new Set(
-      aylikDukkanSatislari.map(
-        (kayit) =>
-          kayit.islemId ??
-          kayit.id ??
-          kayit.tarih
-      )
-    ).size;
-
-  const aylikUrunAdedi =
-    aylikDukkanSatislari.reduce(
-      (toplam, kayit) =>
-        toplam +
-        Number(kayit.adet || 0),
-      0
-    );
-
-  const aylikOrtalamaFis =
-    aylikIslemSayisi > 0
-      ? aylikDukkanSatisToplami /
-        aylikIslemSayisi
-      : 0;
-
-  const seciliGun =
-    detayTarihi(
-      detayDonem,
-      seciliTarih
-    );
-
-  const gunlukDukkanSatislari =
-    useMemo(
-      () =>
-        satislar.filter(
-          (kayit) => {
-            if (
-              platformSatisKaydiMi(
-                kayit.platform
-              )
-            ) {
-              return false;
-            }
-
-            const tarih =
-              kayitTarihi(kayit);
-
-            return Boolean(
-              tarih &&
-                seciliGun &&
-                ayniGunMu(
-                  tarih,
-                  seciliGun
-                )
-            );
-          }
-        ),
-      [
-        satislar,
-        seciliGun,
-      ]
-    );
-
-  const gunlukGiderler =
-    useMemo(
-      () =>
-        giderler.filter(
-          (kayit) => {
-            const tarih =
-              kayitTarihi(kayit);
-
-            return Boolean(
-              tarih &&
-                seciliGun &&
-                ayniGunMu(
-                  tarih,
-                  seciliGun
-                )
-            );
-          }
-        ),
-      [
-        giderler,
-        seciliGun,
-      ]
-    );
-
-  const gunlukTahsilatlar =
-    useMemo(
-      () =>
-        tahsilatlar.filter(
-          (kayit) => {
-            const tarih =
-              kayitTarihi(kayit);
-
-            return Boolean(
-              tarih &&
-                seciliGun &&
-                ayniGunMu(
-                  tarih,
-                  seciliGun
-                )
-            );
-          }
-        ),
-      [
-        tahsilatlar,
-        seciliGun,
-      ]
-    );
-
-  const gunlukSatisIslemleri =
+  const kanalToplamlari =
     useMemo(() => {
-      const gruplar: Record<
-        string,
-        {
-          kimlik: string;
-          tarih: Date | null;
-          adisyon: string;
-          odemeTipi: string;
-          toplam: number;
-          nakit: number;
-          kart: number;
-          urunler: string[];
-        }
-      > = {};
+      const sonuc: Record<
+        KanalAdi,
+        number
+      > = {
+        "Dükkân Satışları": 0,
+        Yemeksepeti: 0,
+        Trendyol: 0,
+        "Uber Eats": 0,
+      };
 
-      gunlukDukkanSatislari.forEach(
+      aylikSatislar.forEach(
         (kayit) => {
-          const kimlik = String(
-            kayit.islemId ??
-              kayit.id ??
-              kayit.tarih ??
-              Math.random()
-          );
+          const kanal =
+            kanalBul(
+              kayit.platform
+            );
 
-          if (!gruplar[kimlik]) {
-            gruplar[kimlik] = {
-              kimlik,
-              tarih:
-                kayitTarihi(kayit),
-              adisyon:
-                kayit.adisyon ||
-                kayit.platform ||
-                "Dükkân",
-              odemeTipi:
-                kayit.odemeTipi ||
-                "Belirtilmemiş",
-              toplam: 0,
-              nakit: 0,
-              kart: 0,
-              urunler: [],
-            };
+          if (!kanal) {
+            return;
           }
 
-          gruplar[kimlik].toplam +=
+          sonuc[kanal] +=
             Number(
               kayit.toplam || 0
             );
-
-          gruplar[kimlik].nakit +=
-            Number(
-              kayit.nakitTutari || 0
-            );
-
-          gruplar[kimlik].kart +=
-            Number(
-              kayit.kartTutari || 0
-            );
-
-          gruplar[
-            kimlik
-          ].urunler.push(
-            `${Number(
-              kayit.adet || 0
-            )} x ${
-              kayit.urun || "Ürün"
-            }`
-          );
         }
       );
 
-      return Object.values(
-        gruplar
-      ).sort((a, b) => {
-        const aZaman =
-          a.tarih?.getTime() || 0;
+      return sonuc;
+    }, [aylikSatislar]);
 
-        const bZaman =
-          b.tarih?.getTime() || 0;
-
-        return aZaman - bZaman;
-      });
-    }, [gunlukDukkanSatislari]);
-
-  const gunlukDukkanSatisToplami =
-    gunlukDukkanSatislari.reduce(
-      (toplam, kayit) =>
-        toplam +
-        Number(kayit.toplam || 0),
+  const gosterilenKanalToplami =
+    Object.values(
+      kanalToplamlari
+    ).reduce(
+      (toplam, tutar) =>
+        toplam + tutar,
       0
     );
 
-  const gunlukPlatformTahsilati =
-    gunlukTahsilatlar.reduce(
-      (toplam, kayit) =>
-        toplam +
-        Number(kayit.tutar || 0),
-      0
-    );
-
-  const gunlukToplamGider =
-    gunlukGiderler.reduce(
-      (toplam, kayit) =>
-        toplam +
-        Number(kayit.tutar || 0),
-      0
-    );
-
-  const gunlukNet =
-    gunlukDukkanSatisToplami +
-    gunlukPlatformTahsilati -
-    gunlukToplamGider;
-
-  const gunlukNakit =
-    gunlukDukkanSatislari.reduce(
-      (toplam, kayit) =>
-        toplam +
-        Number(
-          kayit.nakitTutari || 0
-        ),
-      0
-    );
-
-  const gunlukKart =
-    gunlukDukkanSatislari.reduce(
-      (toplam, kayit) =>
-        toplam +
-        Number(
-          kayit.kartTutari || 0
-        ),
-      0
-    );
+  const satisDagilimi = (
+    [
+      "Dükkân Satışları",
+      "Yemeksepeti",
+      "Trendyol",
+      "Uber Eats",
+    ] as KanalAdi[]
+  ).map((kanal) => ({
+    kanal,
+    tutar:
+      kanalToplamlari[
+        kanal
+      ],
+    oran: yuzde(
+      kanalToplamlari[
+        kanal
+      ],
+      gosterilenKanalToplami
+    ),
+  }));
 
   const kart: CSSProperties = {
     background: "#ffffff",
-    border: "1px solid #e2e8e5",
+    border:
+      "1px solid #e2e8e5",
     borderRadius: "18px",
     padding: "20px",
     boxShadow:
       "0 8px 22px rgba(23,77,56,.06)",
-  };
-
-  const secimButonu: CSSProperties = {
-    border: "1px solid #d1d5db",
-    borderRadius: "11px",
-    padding: "11px 16px",
-    fontWeight: 800,
-    cursor: "pointer",
   };
 
   return (
@@ -640,39 +412,30 @@ export default function Raporlar() {
         minHeight: "100vh",
         background:
           "linear-gradient(180deg, #f7faf8 0%, #eef4f0 100%)",
-        padding: "28px 14px 60px",
+        padding:
+          "28px 14px 60px",
         fontFamily:
           "Arial, sans-serif",
       }}
     >
       <style jsx global>{`
-        @media (max-width: 700px) {
-          .aylik-ozet-grid {
+        @media (max-width: 760px) {
+          .rapor-ozet-grid {
             grid-template-columns:
               repeat(2, minmax(0, 1fr)) !important;
-          }
-
-          .gunluk-ozet-grid {
-            grid-template-columns:
-              repeat(2, minmax(0, 1fr)) !important;
-          }
-
-          .satis-satiri {
-            grid-template-columns:
-              1fr !important;
-          }
-
-          .satis-sag {
-            text-align:
-              left !important;
           }
         }
 
-        @media (max-width: 430px) {
-          .aylik-ozet-grid,
-          .gunluk-ozet-grid {
+        @media (max-width: 480px) {
+          .rapor-ozet-grid {
             grid-template-columns:
               1fr !important;
+          }
+
+          .dagilim-baslik,
+          .dagilim-satir {
+            grid-template-columns:
+              minmax(0, 1fr) 105px 55px !important;
           }
         }
       `}</style>
@@ -687,12 +450,12 @@ export default function Raporlar() {
 
         <div
           style={{
-            marginBottom: "18px",
+            marginBottom: "20px",
           }}
         >
           <h1
             style={{
-              margin: "0 0 5px",
+              margin: "0 0 6px",
               color: "#153f30",
               fontSize:
                 "clamp(30px, 5vw, 42px)",
@@ -705,815 +468,238 @@ export default function Raporlar() {
             style={{
               margin: 0,
               color: "#66736c",
+              textTransform:
+                "capitalize",
             }}
           >
-            Önce ayın genel durumunu gör,
-            gerektiğinde günlük detaya in.
+            {ayBasligi()}
           </p>
         </div>
 
         <section
           style={{
-            ...kart,
-            marginBottom: "18px",
-            background:
-              "linear-gradient(135deg, #174d38 0%, #286c51 100%)",
-            color: "#ffffff",
-            border: "none",
+            marginBottom: "20px",
           }}
         >
-          <small
+          <h2
             style={{
-              display: "block",
-              opacity: 0.82,
-              fontWeight: 800,
-              marginBottom: "6px",
+              margin: "0 0 12px",
+              color: "#174d38",
             }}
           >
-            BU AY · BUGÜNE KADAR
-          </small>
+            📊 Ay Özeti
+          </h2>
 
           <div
+            className="rapor-ozet-grid"
             style={{
-              display: "flex",
-              justifyContent:
-                "space-between",
-              alignItems: "center",
-              gap: "14px",
-              flexWrap: "wrap",
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(5, minmax(0, 1fr))",
+              gap: "11px",
             }}
           >
-            <div>
-              <h2
-                style={{
-                  margin: 0,
-                  fontSize:
-                    "clamp(25px, 4vw, 34px)",
-                }}
-              >
-                {ayBasligi()}
-              </h2>
+            <OzetKart
+              baslik="Toplam Satış"
+              deger={para(
+                toplamSatis
+              )}
+            />
 
-              <p
-                style={{
-                  margin:
-                    "7px 0 0",
-                  opacity: 0.86,
-                }}
-              >
-                Ayın 1’inden bugüne kadar
-                gerçekleşen işlemler.
-              </p>
-            </div>
+            <OzetKart
+              baslik="Platform Tahsilatları"
+              deger={para(
+                platformTahsilatlari
+              )}
+            />
 
-            <div
-              style={{
-                textAlign: "right",
-              }}
-            >
-              <small
-                style={{
-                  display: "block",
-                  opacity: 0.82,
-                  marginBottom: "4px",
-                }}
-              >
-                NET KALAN
-              </small>
+            <OzetKart
+              baslik="Toplam Gelir"
+              deger={para(
+                toplamGelir
+              )}
+            />
 
-              <strong
-                style={{
-                  fontSize:
-                    "clamp(27px, 4vw, 38px)",
-                }}
-              >
-                {para(
-                  aylikNetKalan
-                )}
-              </strong>
-            </div>
+            <OzetKart
+              baslik="Toplam Gider"
+              deger={para(
+                toplamGider
+              )}
+              tur="gider"
+            />
+
+            <OzetKart
+              baslik="Net Kalan"
+              deger={para(
+                netKalan
+              )}
+              tur={
+                netKalan < 0
+                  ? "gider"
+                  : "net"
+              }
+            />
           </div>
         </section>
 
         <section
-          className="aylik-ozet-grid"
           style={{
-            display: "grid",
-            gridTemplateColumns:
-              "repeat(3, minmax(0, 1fr))",
-            gap: "12px",
-            marginBottom: "18px",
+            marginBottom: "20px",
           }}
         >
-          <OzetKart
-            baslik="DÜKKÂN SATIŞI"
-            deger={para(
-              aylikDukkanSatisToplami
-            )}
-            ikon="🥪"
-          />
+          <h2
+            style={{
+              margin: "0 0 12px",
+              color: "#174d38",
+            }}
+          >
+            💵 Kasa Hareketleri
+          </h2>
 
-          <OzetKart
-            baslik="PLATFORM TAHSİLATI"
-            deger={para(
-              aylikPlatformTahsilati
-            )}
-            ikon="🌐"
-          />
+          <div
+            className="rapor-ozet-grid"
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(3, minmax(0, 1fr))",
+              gap: "11px",
+            }}
+          >
+            <OzetKart
+              baslik="Toplam Bakiye"
+              deger={para(
+                netKalan
+              )}
+              tur={
+                netKalan < 0
+                  ? "gider"
+                  : "net"
+              }
+            />
 
-          <OzetKart
-            baslik="TOPLAM PARA GİRİŞİ"
-            deger={para(
-              aylikToplamParaGirisi
-            )}
-            ikon="💰"
-          />
+            <OzetKart
+              baslik="Toplam Gelir"
+              deger={para(
+                toplamGelir
+              )}
+            />
 
-          <OzetKart
-            baslik="TOPLAM GİDER"
-            deger={para(
-              aylikToplamGider
-            )}
-            ikon="💸"
-            kirmizi
-          />
-
-          <OzetKart
-            baslik="SATIŞ İŞLEMİ"
-            deger={String(
-              aylikIslemSayisi
-            )}
-            alt={`${aylikUrunAdedi} ürün`}
-            ikon="🧾"
-          />
-
-          <OzetKart
-            baslik="ORTALAMA FİŞ"
-            deger={para(
-              aylikOrtalamaFis
-            )}
-            ikon="📌"
-          />
+            <OzetKart
+              baslik="Toplam Gider"
+              deger={para(
+                toplamGider
+              )}
+              tur="gider"
+            />
+          </div>
         </section>
 
-        <button
-          type="button"
-          onClick={() =>
-            setDetayAcik(
-              (onceki) => !onceki
-            )
-          }
-          style={{
-            width: "100%",
-            border: "none",
-            borderRadius: "14px",
-            padding: "15px 18px",
-            marginBottom:
-              detayAcik
-                ? "16px"
-                : "0",
-            background: detayAcik
-              ? "#e9eef9"
-              : "#294b8f",
-            color: detayAcik
-              ? "#294b8f"
-              : "#ffffff",
-            cursor: "pointer",
-            fontSize: "16px",
-            fontWeight: 900,
-          }}
+        <section
+          style={kart}
         >
-          {detayAcik
-            ? "▲ Detayı Kapat"
-            : "▼ Günlük Detayı Gör"}
-        </button>
+          <h2
+            style={{
+              margin: "0 0 16px",
+              color: "#174d38",
+            }}
+          >
+            🍽️ Satış Dağılımı
+          </h2>
 
-        {detayAcik && (
-          <>
-            <section
+          <div
+            className="dagilim-baslik"
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "minmax(0, 1fr) 150px 70px",
+              gap: "12px",
+              padding:
+                "0 0 9px",
+              borderBottom:
+                "2px solid #174d38",
+              color: "#6b7280",
+              fontSize: "12px",
+              fontWeight: 900,
+            }}
+          >
+            <span>KANAL</span>
+
+            <span
               style={{
-                ...kart,
-                marginBottom:
-                  "14px",
+                textAlign: "right",
               }}
             >
+              TUTAR
+            </span>
+
+            <span
+              style={{
+                textAlign: "right",
+              }}
+            >
+              %
+            </span>
+          </div>
+
+          {satisDagilimi.map(
+            (kayit) => (
               <div
+                className="dagilim-satir"
+                key={
+                  kayit.kanal
+                }
                 style={{
-                  display: "flex",
-                  justifyContent:
-                    "space-between",
+                  display: "grid",
+                  gridTemplateColumns:
+                    "minmax(0, 1fr) 150px 70px",
+                  gap: "12px",
                   alignItems:
-                    "flex-end",
-                  gap: "14px",
-                  flexWrap: "wrap",
+                    "center",
+                  padding:
+                    "15px 0",
+                  borderBottom:
+                    "1px solid #e5e7eb",
                 }}
               >
-                <div>
-                  <small
-                    style={{
-                      color:
-                        "#6b7280",
-                      fontWeight: 800,
-                    }}
-                  >
-                    DETAY
-                  </small>
-
-                  <h2
-                    style={{
-                      margin:
-                        "5px 0 0",
-                      color:
-                        "#174d38",
-                    }}
-                  >
-                    {gunBasligi(
-                      detayDonem,
-                      seciliTarih
-                    )}
-                  </h2>
-                </div>
-
-                <div
+                <strong
                   style={{
-                    display: "flex",
-                    gap: "8px",
-                    flexWrap: "wrap",
+                    color:
+                      "#1f2937",
                   }}
                 >
-                  {(
-                    [
-                      "Bugün",
-                      "Dün",
-                      "Tarih Seç",
-                    ] as DetayDonem[]
-                  ).map((secenek) => (
-                    <button
-                      key={secenek}
-                      type="button"
-                      onClick={() =>
-                        setDetayDonem(
-                          secenek
-                        )
-                      }
-                      style={{
-                        ...secimButonu,
-                        background:
-                          detayDonem ===
-                          secenek
-                            ? "#174d38"
-                            : "#ffffff",
-                        color:
-                          detayDonem ===
-                          secenek
-                            ? "#ffffff"
-                            : "#1f2937",
-                        borderColor:
-                          detayDonem ===
-                          secenek
-                            ? "#174d38"
-                            : "#d1d5db",
-                      }}
-                    >
-                      {secenek ===
-                      "Tarih Seç"
-                        ? "Özel Tarih"
-                        : secenek}
-                    </button>
-                  ))}
-
-                  {detayDonem ===
-                    "Tarih Seç" && (
-                    <input
-                      type="date"
-                      value={
-                        seciliTarih
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setSeciliTarih(
-                          event.target
-                            .value
-                        )
-                      }
-                      style={{
-                        ...secimButonu,
-                        background:
-                          "#ffffff",
-                        color:
-                          "#111827",
-                      }}
-                    />
-                  )}
-                </div>
-              </div>
-            </section>
-
-            <section
-              className="gunluk-ozet-grid"
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(4, minmax(0, 1fr))",
-                gap: "10px",
-                marginBottom:
-                  "14px",
-              }}
-            >
-              <MiniKart
-                baslik="Satış"
-                deger={para(
-                  gunlukDukkanSatisToplami
-                )}
-              />
-
-              <MiniKart
-                baslik="Platform"
-                deger={para(
-                  gunlukPlatformTahsilati
-                )}
-              />
-
-              <MiniKart
-                baslik="Gider"
-                deger={para(
-                  gunlukToplamGider
-                )}
-                kirmizi
-              />
-
-              <MiniKart
-                baslik="Net"
-                deger={para(
-                  gunlukNet
-                )}
-                yesil={
-                  gunlukNet >= 0
-                }
-                kirmizi={
-                  gunlukNet < 0
-                }
-              />
-            </section>
-
-            <section
-              style={{
-                ...kart,
-                marginBottom:
-                  "14px",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent:
-                    "space-between",
-                  gap: "12px",
-                  flexWrap: "wrap",
-                  alignItems: "center",
-                  marginBottom:
-                    "13px",
-                }}
-              >
-                <div>
-                  <h2
-                    style={{
-                      margin: 0,
-                    }}
-                  >
-                    🧾 Satışlar
-                  </h2>
-
-                  <small
-                    style={{
-                      display: "block",
-                      marginTop: "4px",
-                      color:
-                        "#6b7280",
-                    }}
-                  >
-                    Her satış tek satırda.
-                  </small>
-                </div>
+                  {kayit.kanal}
+                </strong>
 
                 <strong
                   style={{
+                    textAlign:
+                      "right",
                     color:
                       "#174d38",
                   }}
                 >
-                  {
-                    gunlukSatisIslemleri.length
-                  }{" "}
-                  satış
+                  {para(
+                    kayit.tutar
+                  )}
+                </strong>
+
+                <strong
+                  style={{
+                    textAlign:
+                      "right",
+                    color:
+                      "#294b8f",
+                  }}
+                >
+                  %
+                  {kayit.oran.toFixed(
+                    1
+                  )}
                 </strong>
               </div>
-
-              {gunlukSatisIslemleri.length ===
-              0 ? (
-                <BosDurum metin="Bu tarihte satış kaydı yok." />
-              ) : (
-                <div>
-                  {gunlukSatisIslemleri.map(
-                    (
-                      islem,
-                      index
-                    ) => (
-                      <div
-                        className="satis-satiri"
-                        key={
-                          islem.kimlik
-                        }
-                        style={{
-                          display:
-                            "grid",
-                          gridTemplateColumns:
-                            "minmax(0, 1fr) auto",
-                          gap: "16px",
-                          padding:
-                            "15px 0",
-                          borderBottom:
-                            index ===
-                            gunlukSatisIslemleri.length -
-                              1
-                              ? "none"
-                              : "1px solid #e5e7eb",
-                        }}
-                      >
-                        <div>
-                          <div
-                            style={{
-                              display:
-                                "flex",
-                              gap: "9px",
-                              flexWrap:
-                                "wrap",
-                              alignItems:
-                                "center",
-                            }}
-                          >
-                            <strong
-                              style={{
-                                fontSize:
-                                  "17px",
-                                color:
-                                  "#1f2937",
-                              }}
-                            >
-                              {
-                                islem.adisyon
-                              }
-                            </strong>
-
-                            <small
-                              style={{
-                                color:
-                                  "#6b7280",
-                                fontWeight:
-                                  800,
-                              }}
-                            >
-                              {islem.tarih
-                                ? new Intl.DateTimeFormat(
-                                    "tr-TR",
-                                    {
-                                      hour:
-                                        "2-digit",
-                                      minute:
-                                        "2-digit",
-                                    }
-                                  ).format(
-                                    islem.tarih
-                                  )
-                                : "Saat yok"}
-                            </small>
-                          </div>
-
-                          <div
-                            style={{
-                              marginTop:
-                                "6px",
-                              color:
-                                "#64748b",
-                              lineHeight:
-                                1.5,
-                            }}
-                          >
-                            {islem.urunler.join(
-                              " · "
-                            )}
-                          </div>
-                        </div>
-
-                        <div
-                          className="satis-sag"
-                          style={{
-                            minWidth:
-                              "150px",
-                            textAlign:
-                              "right",
-                          }}
-                        >
-                          <span
-                            style={{
-                              display:
-                                "inline-block",
-                              padding:
-                                "6px 9px",
-                              borderRadius:
-                                "999px",
-                              background:
-                                "#eef4ff",
-                              color:
-                                "#294b8f",
-                              fontSize:
-                                "12px",
-                              fontWeight:
-                                800,
-                            }}
-                          >
-                            {
-                              islem.odemeTipi
-                            }
-                          </span>
-
-                          <strong
-                            style={{
-                              display:
-                                "block",
-                              marginTop:
-                                "7px",
-                              color:
-                                "#174d38",
-                              fontSize:
-                                "19px",
-                            }}
-                          >
-                            {para(
-                              islem.toplam
-                            )}
-                          </strong>
-                        </div>
-                      </div>
-                    )
-                  )}
-
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fit, minmax(150px, 1fr))",
-                      gap: "9px",
-                      paddingTop:
-                        "14px",
-                      marginTop: "5px",
-                      borderTop:
-                        "2px solid #174d38",
-                    }}
-                  >
-                    <MiniOzet
-                      baslik="NAKİT"
-                      deger={para(
-                        gunlukNakit
-                      )}
-                    />
-
-                    <MiniOzet
-                      baslik="KART"
-                      deger={para(
-                        gunlukKart
-                      )}
-                    />
-
-                    <MiniOzet
-                      baslik="TOPLAM"
-                      deger={para(
-                        gunlukDukkanSatisToplami
-                      )}
-                      vurgu
-                    />
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <section
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(280px, 1fr))",
-                gap: "14px",
-              }}
-            >
-              <div style={kart}>
-                <h2
-                  style={{
-                    marginTop: 0,
-                  }}
-                >
-                  💸 Giderler
-                </h2>
-
-                {gunlukGiderler.length ===
-                0 ? (
-                  <BosDurum metin="Bu tarihte gider kaydı yok." />
-                ) : (
-                  <>
-                    {gunlukGiderler.map(
-                      (
-                        kayit,
-                        index
-                      ) => (
-                        <div
-                          key={`${kayit.id ?? index}-${index}`}
-                          style={{
-                            display:
-                              "flex",
-                            justifyContent:
-                              "space-between",
-                            gap: "12px",
-                            padding:
-                              "11px 0",
-                            borderBottom:
-                              "1px solid #e5e7eb",
-                          }}
-                        >
-                          <span>
-                            <strong>
-                              {kayit.kategori ||
-                                "Diğer"}
-                            </strong>
-
-                            <small
-                              style={{
-                                display:
-                                  "block",
-                                marginTop:
-                                  "3px",
-                                color:
-                                  "#6b7280",
-                              }}
-                            >
-                              {kayit.aciklama ||
-                                kayit.odemeTipi ||
-                                ""}
-                            </small>
-                          </span>
-
-                          <strong
-                            style={{
-                              color:
-                                "#b91c1c",
-                            }}
-                          >
-                            {para(
-                              Number(
-                                kayit.tutar ||
-                                  0
-                              )
-                            )}
-                          </strong>
-                        </div>
-                      )
-                    )}
-
-                    <div
-                      style={{
-                        display:
-                          "flex",
-                        justifyContent:
-                          "space-between",
-                        gap: "12px",
-                        paddingTop:
-                          "13px",
-                      }}
-                    >
-                      <strong>
-                        Toplam
-                      </strong>
-
-                      <strong
-                        style={{
-                          color:
-                            "#b91c1c",
-                        }}
-                      >
-                        {para(
-                          gunlukToplamGider
-                        )}
-                      </strong>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div style={kart}>
-                <h2
-                  style={{
-                    marginTop: 0,
-                  }}
-                >
-                  🌐 Platform Tahsilatları
-                </h2>
-
-                {gunlukTahsilatlar.length ===
-                0 ? (
-                  <BosDurum metin="Bu tarihte platform tahsilatı yok." />
-                ) : (
-                  <>
-                    {gunlukTahsilatlar.map(
-                      (
-                        kayit,
-                        index
-                      ) => (
-                        <div
-                          key={`${kayit.id ?? index}-${index}`}
-                          style={{
-                            display:
-                              "flex",
-                            justifyContent:
-                              "space-between",
-                            gap: "12px",
-                            padding:
-                              "11px 0",
-                            borderBottom:
-                              "1px solid #e5e7eb",
-                          }}
-                        >
-                          <span>
-                            <strong>
-                              {kayit.platform ||
-                                "Platform"}
-                            </strong>
-
-                            {kayit.donem && (
-                              <small
-                                style={{
-                                  display:
-                                    "block",
-                                  marginTop:
-                                    "3px",
-                                  color:
-                                    "#6b7280",
-                                }}
-                              >
-                                {
-                                  kayit.donem
-                                }
-                              </small>
-                            )}
-                          </span>
-
-                          <strong
-                            style={{
-                              color:
-                                "#174d38",
-                            }}
-                          >
-                            {para(
-                              Number(
-                                kayit.tutar ||
-                                  0
-                              )
-                            )}
-                          </strong>
-                        </div>
-                      )
-                    )}
-
-                    <div
-                      style={{
-                        display:
-                          "flex",
-                        justifyContent:
-                          "space-between",
-                        gap: "12px",
-                        paddingTop:
-                          "13px",
-                      }}
-                    >
-                      <strong>
-                        Toplam
-                      </strong>
-
-                      <strong
-                        style={{
-                          color:
-                            "#174d38",
-                        }}
-                      >
-                        {para(
-                          gunlukPlatformTahsilati
-                        )}
-                      </strong>
-                    </div>
-                  </>
-                )}
-              </div>
-            </section>
-          </>
-        )}
+            )
+          )}
+        </section>
       </div>
     </main>
   );
@@ -1522,93 +708,50 @@ export default function Raporlar() {
 function OzetKart({
   baslik,
   deger,
-  ikon,
-  alt,
-  kirmizi = false,
+  tur = "normal",
 }: {
   baslik: string;
   deger: string;
-  ikon: string;
-  alt?: string;
-  kirmizi?: boolean;
+  tur?:
+    | "normal"
+    | "gider"
+    | "net";
 }) {
+  const renk =
+    tur === "gider"
+      ? "#b91c1c"
+      : tur === "net"
+        ? "#15803d"
+        : "#174d38";
+
+  const arkaPlan =
+    tur === "gider"
+      ? "#fff5f5"
+      : tur === "net"
+        ? "#f0fdf4"
+        : "#ffffff";
+
   return (
     <div
       style={{
-        background: "#ffffff",
+        minHeight: "110px",
+        padding: "17px",
+        borderRadius: "16px",
+        background:
+          arkaPlan,
         border:
           "1px solid #e2e8e5",
-        borderRadius: "17px",
-        padding: "18px",
         boxShadow:
-          "0 7px 18px rgba(23,77,56,.05)",
+          "0 6px 17px rgba(23,77,56,.05)",
       }}
     >
       <small
         style={{
           display: "block",
+          minHeight: "32px",
           color: "#6b7280",
           fontWeight: 900,
-          marginBottom: "8px",
-        }}
-      >
-        {ikon} {baslik}
-      </small>
-
-      <strong
-        style={{
-          display: "block",
-          fontSize: "23px",
-          color: kirmizi
-            ? "#b91c1c"
-            : "#174d38",
-        }}
-      >
-        {deger}
-      </strong>
-
-      {alt && (
-        <small
-          style={{
-            display: "block",
-            marginTop: "6px",
-            color: "#6b7280",
-          }}
-        >
-          {alt}
-        </small>
-      )}
-    </div>
-  );
-}
-
-function MiniKart({
-  baslik,
-  deger,
-  yesil = false,
-  kirmizi = false,
-}: {
-  baslik: string;
-  deger: string;
-  yesil?: boolean;
-  kirmizi?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        background: "#ffffff",
-        border:
-          "1px solid #e2e8e5",
-        borderRadius: "14px",
-        padding: "14px",
-      }}
-    >
-      <small
-        style={{
-          display: "block",
-          color: "#6b7280",
-          fontWeight: 800,
-          marginBottom: "6px",
+          lineHeight: 1.35,
         }}
       >
         {baslik}
@@ -1616,85 +759,18 @@ function MiniKart({
 
       <strong
         style={{
-          fontSize: "19px",
-          color: kirmizi
-            ? "#b91c1c"
-            : yesil
-              ? "#15803d"
-              : "#174d38",
-        }}
-      >
-        {deger}
-      </strong>
-    </div>
-  );
-}
-
-function MiniOzet({
-  baslik,
-  deger,
-  vurgu = false,
-}: {
-  baslik: string;
-  deger: string;
-  vurgu?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        padding: "11px",
-        borderRadius: "11px",
-        background: vurgu
-          ? "#e8f4ed"
-          : "#f8faf9",
-        border: vurgu
-          ? "1px solid #86c7a3"
-          : "1px solid #e5e7eb",
-      }}
-    >
-      <small
-        style={{
           display: "block",
-          color: "#6b7280",
-          fontWeight: 800,
-          marginBottom: "4px",
-        }}
-      >
-        {baslik}
-      </small>
-
-      <strong
-        style={{
-          color: vurgu
-            ? "#174d38"
-            : "#1f2937",
-          fontSize: vurgu
-            ? "18px"
-            : "16px",
+          marginTop: "8px",
+          color: renk,
+          fontSize:
+            "clamp(19px, 2.4vw, 24px)",
+          lineHeight: 1.2,
+          overflowWrap:
+            "anywhere",
         }}
       >
         {deger}
       </strong>
-    </div>
-  );
-}
-
-function BosDurum({
-  metin,
-}: {
-  metin: string;
-}) {
-  return (
-    <div
-      style={{
-        padding: "18px",
-        borderRadius: "12px",
-        background: "#f8faf9",
-        color: "#6b7280",
-        textAlign: "center",
-      }}
-    >
-      {metin}
     </div>
   );
 }
