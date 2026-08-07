@@ -328,6 +328,54 @@ export default function Yedekleme() {
     }
   }
 
+  function demoVerileriniTemizle() {
+    if (!yoneticiOnayiAl()) {
+      return;
+    }
+
+    const onay = window.confirm(
+      "Demo satış, gider, tahsilat, kasa ve açık adisyon kayıtları silinecek. Ürünler, fiyatlar, malzemeler, reçeteler ve ayarlar korunacak. Devam edilsin mi?"
+    );
+
+    if (!onay) {
+      return;
+    }
+
+    const sonOnay = window.confirm(
+      "SON ONAY: Bu işlem geri alınamaz. Gerçek kayıt girdiysen onlar da silinir. Emin misin?"
+    );
+
+    if (!sonOnay) {
+      return;
+    }
+
+    try {
+      const silinecekAnahtarlar = [
+        "aristo-satislar",
+        "aristo-giderler",
+        "aristo-tahsilatlar",
+        "aristo-kasa",
+        "aristo-kasa-kapanislari",
+        "aristo-acik-adisyonlar",
+      ];
+
+      silinecekAnahtarlar.forEach((anahtar) => {
+        localStorage.removeItem(anahtar);
+      });
+
+      window.dispatchEvent(new Event("storage"));
+      bildirimGoster(
+        "Demo işlem kayıtları temizlendi. Ürünler, malzemeler, reçeteler ve ayarlar korundu."
+      );
+
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 900);
+    } catch {
+      hataGoster("Demo verileri temizlenirken hata oluştu.");
+    }
+  }
+
   const kart: CSSProperties = {
     background: "#ffffff",
     border: "1px solid #e3e8e5",
@@ -647,6 +695,47 @@ export default function Yedekleme() {
             )}
           </div>
         </section>
+
+        <div
+          style={{
+            ...kart,
+            marginTop: "18px",
+            border: "1px solid #fecaca",
+            background: "#fffafa",
+          }}
+        >
+          <h2
+            style={{
+              marginTop: 0,
+              color: "#b91c1c",
+            }}
+          >
+            🧹 Gerçek Kullanıma Geçiş
+          </h2>
+
+          <p
+            style={{
+              color: "#6b7280",
+              lineHeight: 1.7,
+            }}
+          >
+            Demo satışları, giderleri, tahsilatları, kasa kayıtlarını ve açık
+            adisyonları temizler. Ürünler, fiyatlar, malzemeler, reçeteler ve
+            işletme ayarları korunur. Gerçek kayıt girmeye başladıysan bu
+            butonu kullanma.
+          </p>
+
+          <button
+            type="button"
+            onClick={demoVerileriniTemizle}
+            style={{
+              ...anaButon,
+              background: "#b91c1c",
+            }}
+          >
+            🗑️ Demo İşlem Verilerini Temizle
+          </button>
+        </div>
 
         <div
           style={{
