@@ -15,9 +15,7 @@ export default function Malzemeler() {
   >("Tümü");
 
   useEffect(() => {
-    const kayitliVeri = localStorage.getItem(
-      "aristo-malzemeler"
-    );
+    const kayitliVeri = localStorage.getItem("aristo-malzemeler");
 
     if (!kayitliVeri) {
       setMalzemeler(varsayilanMalzemeler);
@@ -30,16 +28,14 @@ export default function Malzemeler() {
       return;
     }
 
-    const eskiMalzemeler: Malzeme[] =
-      JSON.parse(kayitliVeri);
+    const eskiMalzemeler: Malzeme[] = JSON.parse(kayitliVeri);
 
-    const birlestirilmisMalzemeler =
-      varsayilanMalzemeler.map((varsayilan) => {
+    const birlestirilmisMalzemeler = varsayilanMalzemeler.map(
+      (varsayilan) => {
         const eski = eskiMalzemeler.find(
           (kayit) =>
             kayit.ad === varsayilan.ad &&
-            kayit.kullanimAlani ===
-              varsayilan.kullanimAlani
+            kayit.kullanimAlani === varsayilan.kullanimAlani
         );
 
         if (!eski) {
@@ -48,19 +44,13 @@ export default function Malzemeler() {
 
         return {
           ...varsayilan,
-          gramaj: Number(
-            eski.gramaj ?? varsayilan.gramaj
-          ),
+          gramaj: Number(eski.gramaj ?? varsayilan.gramaj),
           birimFiyat: Number(
-            eski.birimFiyat ??
-              varsayilan.birimFiyat
-          ),
-          kalori100Gr: Number(
-            eski.kalori100Gr ??
-              varsayilan.kalori100Gr
+            eski.birimFiyat ?? varsayilan.birimFiyat
           ),
         };
-      });
+      }
+    );
 
     setMalzemeler(birlestirilmisMalzemeler);
 
@@ -81,20 +71,16 @@ export default function Malzemeler() {
 
   function guncelle(
     id: number,
-    alanAdi:
-      | "gramaj"
-      | "birimFiyat"
-      | "kalori100Gr",
+    alanAdi: "gramaj" | "birimFiyat",
     deger: number
   ) {
-    const yeniListe = malzemeler.map(
-      (malzeme) =>
-        malzeme.id === id
-          ? {
-              ...malzeme,
-              [alanAdi]: Math.max(deger, 0),
-            }
-          : malzeme
+    const yeniListe = malzemeler.map((malzeme) =>
+      malzeme.id === id
+        ? {
+            ...malzeme,
+            [alanAdi]: Math.max(deger, 0),
+          }
+        : malzeme
     );
 
     kaydet(yeniListe);
@@ -102,7 +88,7 @@ export default function Malzemeler() {
 
   function varsayilanaDon() {
     const onay = window.confirm(
-      "Bütün gramaj, fiyat ve kalori bilgileri sıfırlansın mı?"
+      "Bütün gramaj ve fiyat bilgileri varsayılana dönsün mü?"
     );
 
     if (!onay) return;
@@ -111,14 +97,11 @@ export default function Malzemeler() {
   }
 
   const filtrelenmisMalzemeler = useMemo(() => {
-    const aranan = arama
-      .trim()
-      .toLocaleLowerCase("tr-TR");
+    const aranan = arama.trim().toLocaleLowerCase("tr-TR");
 
     return malzemeler.filter((malzeme) => {
       const alanUygun =
-        alan === "Tümü" ||
-        malzeme.kullanimAlani === alan;
+        alan === "Tümü" || malzeme.kullanimAlani === alan;
 
       const aramaUygun =
         !aranan ||
@@ -133,13 +116,7 @@ export default function Malzemeler() {
   const toplamMalzeme = malzemeler.length;
 
   const fiyatGirilenMalzeme = malzemeler.filter(
-    (malzeme) =>
-      Number(malzeme.birimFiyat || 0) > 0
-  ).length;
-
-  const kaloriGirilenMalzeme = malzemeler.filter(
-    (malzeme) =>
-      Number(malzeme.kalori100Gr || 0) > 0
+    (malzeme) => Number(malzeme.birimFiyat || 0) > 0
   ).length;
 
   const ortalamaPorsiyonMaliyeti =
@@ -147,8 +124,7 @@ export default function Malzemeler() {
       ? malzemeler.reduce(
           (toplam, malzeme) =>
             toplam +
-            (Number(malzeme.birimFiyat || 0) /
-              1000) *
+            (Number(malzeme.birimFiyat || 0) / 1000) *
               Number(malzeme.gramaj || 0),
           0
         ) / malzemeler.length
@@ -165,8 +141,7 @@ export default function Malzemeler() {
     border: "1px solid #e5e7eb",
     borderRadius: "18px",
     padding: "20px",
-    boxShadow:
-      "0 8px 20px rgba(0,0,0,0.06)",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
   };
 
   const alanStili = {
@@ -193,9 +168,7 @@ export default function Malzemeler() {
           margin: "0 auto",
         }}
       >
-        <Link href="/">
-          ← Ana Sayfaya Dön
-        </Link>
+        <Link href="/">← Ana Sayfaya Dön</Link>
 
         <h1 style={{ marginBottom: "6px" }}>
           🥬 Malzemeler
@@ -208,23 +181,21 @@ export default function Malzemeler() {
             color: "#6b7280",
           }}
         >
-          Gramaj, alış fiyatı ve kalori
-          bilgilerini yönet.
+          Gramaj ve alış fiyatı bilgilerini yönet.
+          Kalori bilgileri ayrı Kalori Hesabı ekranındadır.
         </p>
 
         <section
           style={{
             display: "grid",
             gridTemplateColumns:
-              "repeat(auto-fit, minmax(190px, 1fr))",
+              "repeat(auto-fit, minmax(220px, 1fr))",
             gap: "14px",
             marginBottom: "24px",
           }}
         >
           <div style={kartStili}>
-            <small
-              style={{ color: "#6b7280" }}
-            >
+            <small style={{ color: "#6b7280" }}>
               Toplam malzeme
             </small>
 
@@ -234,9 +205,7 @@ export default function Malzemeler() {
           </div>
 
           <div style={kartStili}>
-            <small
-              style={{ color: "#6b7280" }}
-            >
+            <small style={{ color: "#6b7280" }}>
               Fiyat girilen
             </small>
 
@@ -251,33 +220,12 @@ export default function Malzemeler() {
           </div>
 
           <div style={kartStili}>
-            <small
-              style={{ color: "#6b7280" }}
-            >
-              Kalori girilen
-            </small>
-
-            <h2
-              style={{
-                marginBottom: 0,
-                color: "#15803d",
-              }}
-            >
-              {kaloriGirilenMalzeme}
-            </h2>
-          </div>
-
-          <div style={kartStili}>
-            <small
-              style={{ color: "#6b7280" }}
-            >
+            <small style={{ color: "#6b7280" }}>
               Ortalama porsiyon maliyeti
             </small>
 
             <h2 style={{ marginBottom: 0 }}>
-              {para(
-                ortalamaPorsiyonMaliyeti
-              )}
+              {para(ortalamaPorsiyonMaliyeti)}
             </h2>
           </div>
         </section>
@@ -347,232 +295,116 @@ export default function Malzemeler() {
               style={{
                 width: "100%",
                 padding: "12px",
-                border:
-                  "1px solid #d1d5db",
+                border: "1px solid #d1d5db",
                 borderRadius: "10px",
                 background: "#ffffff",
                 fontWeight: "bold",
                 cursor: "pointer",
               }}
             >
-              ↩️ Bütün Bilgileri Sıfırla
+              ↩️ Gramaj ve Fiyatları Sıfırla
             </button>
           </div>
         </section>
 
         <section style={kartStili}>
-          <div
-            style={{
-              overflowX: "auto",
-            }}
-          >
+          <div style={{ overflowX: "auto" }}>
             <table
               style={{
                 width: "100%",
-                minWidth: "980px",
-                borderCollapse:
-                  "collapse",
+                minWidth: "760px",
+                borderCollapse: "collapse",
               }}
             >
               <thead>
                 <tr>
-                  <th style={hucre}>
-                    Malzeme
-                  </th>
-
-                  <th style={hucre}>
-                    Alan
-                  </th>
-
-                  <th style={hucre}>
-                    Gramaj
-                  </th>
-
-                  <th style={hucre}>
-                    Alış Fiyatı (₺/kg)
-                  </th>
-
-                  <th style={hucre}>
-                    Porsiyon Maliyeti
-                  </th>
-
-                  <th style={hucre}>
-                    Kalori / 100 g
-                  </th>
-
-                  <th style={hucre}>
-                    Porsiyon Kalorisi
-                  </th>
+                  <th style={hucre}>Malzeme</th>
+                  <th style={hucre}>Alan</th>
+                  <th style={hucre}>Gramaj</th>
+                  <th style={hucre}>Alış Fiyatı (₺/kg)</th>
+                  <th style={hucre}>Porsiyon Maliyeti</th>
                 </tr>
               </thead>
 
               <tbody>
-                {filtrelenmisMalzemeler.map(
-                  (malzeme) => {
-                    const porsiyonMaliyeti =
-                      (Number(
-                        malzeme.birimFiyat ||
-                          0
-                      ) /
-                        1000) *
-                      Number(
-                        malzeme.gramaj || 0
-                      );
+                {filtrelenmisMalzemeler.map((malzeme) => {
+                  const porsiyonMaliyeti =
+                    (Number(malzeme.birimFiyat || 0) / 1000) *
+                    Number(malzeme.gramaj || 0);
 
-                    const porsiyonKalorisi =
-                      (Number(
-                        malzeme.kalori100Gr ||
-                          0
-                      ) /
-                        100) *
-                      Number(
-                        malzeme.gramaj || 0
-                      );
+                  return (
+                    <tr key={malzeme.id}>
+                      <td style={hucre}>
+                        <strong>{malzeme.ad}</strong>
+                      </td>
 
-                    return (
-                      <tr key={malzeme.id}>
-                        <td style={hucre}>
-                          <strong>
-                            {malzeme.ad}
-                          </strong>
-                        </td>
+                      <td style={hucre}>
+                        {malzeme.kullanimAlani}
+                      </td>
 
-                        <td style={hucre}>
-                          {
-                            malzeme.kullanimAlani
+                      <td style={hucre}>
+                        <input
+                          type="number"
+                          min="0"
+                          value={malzeme.gramaj}
+                          onChange={(event) =>
+                            guncelle(
+                              malzeme.id,
+                              "gramaj",
+                              Number(event.target.value)
+                            )
                           }
-                        </td>
-
-                        <td style={hucre}>
-                          <input
-                            type="number"
-                            min="0"
-                            value={
-                              malzeme.gramaj
-                            }
-                            onChange={(
-                              event
-                            ) =>
-                              guncelle(
-                                malzeme.id,
-                                "gramaj",
-                                Number(
-                                  event.target
-                                    .value
-                                )
-                              )
-                            }
-                            style={{
-                              width: "90px",
-                              padding: "8px",
-                              border:
-                                "1px solid #d1d5db",
-                              borderRadius:
-                                "8px",
-                            }}
-                          />{" "}
-                          g
-                        </td>
-
-                        <td style={hucre}>
-                          <input
-                            type="number"
-                            min="0"
-                            value={
-                              malzeme.birimFiyat
-                            }
-                            onChange={(
-                              event
-                            ) =>
-                              guncelle(
-                                malzeme.id,
-                                "birimFiyat",
-                                Number(
-                                  event.target
-                                    .value
-                                )
-                              )
-                            }
-                            style={{
-                              width: "110px",
-                              padding: "8px",
-                              border:
-                                "1px solid #d1d5db",
-                              borderRadius:
-                                "8px",
-                            }}
-                          />
-                        </td>
-
-                        <td
                           style={{
-                            ...hucre,
-                            fontWeight:
-                              "bold",
-                            color:
-                              porsiyonMaliyeti >
-                              0
-                                ? "#174d38"
-                                : "#6b7280",
+                            width: "90px",
+                            padding: "8px",
+                            border: "1px solid #d1d5db",
+                            borderRadius: "8px",
                           }}
-                        >
-                          {para(
-                            porsiyonMaliyeti
-                          )}
-                        </td>
+                        />{" "}
+                        g
+                      </td>
 
-                        <td style={hucre}>
-                          <input
-                            type="number"
-                            min="0"
-                            value={
-                              malzeme.kalori100Gr
-                            }
-                            onChange={(
-                              event
-                            ) =>
-                              guncelle(
-                                malzeme.id,
-                                "kalori100Gr",
-                                Number(
-                                  event.target
-                                    .value
-                                )
-                              )
-                            }
-                            style={{
-                              width: "100px",
-                              padding: "8px",
-                              border:
-                                "1px solid #d1d5db",
-                              borderRadius:
-                                "8px",
-                            }}
-                          />
-                        </td>
-
-                        <td
+                      <td style={hucre}>
+                        <input
+                          type="number"
+                          min="0"
+                          value={malzeme.birimFiyat}
+                          onChange={(event) =>
+                            guncelle(
+                              malzeme.id,
+                              "birimFiyat",
+                              Number(event.target.value)
+                            )
+                          }
                           style={{
-                            ...hucre,
-                            fontWeight:
-                              "bold",
+                            width: "110px",
+                            padding: "8px",
+                            border: "1px solid #d1d5db",
+                            borderRadius: "8px",
                           }}
-                        >
-                          {porsiyonKalorisi.toFixed(
-                            1
-                          )}{" "}
-                          kcal
-                        </td>
-                      </tr>
-                    );
-                  }
-                )}
+                        />
+                      </td>
+
+                      <td
+                        style={{
+                          ...hucre,
+                          fontWeight: "bold",
+                          color:
+                            porsiyonMaliyeti > 0
+                              ? "#174d38"
+                              : "#6b7280",
+                        }}
+                      >
+                        {para(porsiyonMaliyeti)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
 
-          {filtrelenmisMalzemeler.length ===
-            0 && (
+          {filtrelenmisMalzemeler.length === 0 && (
             <p
               style={{
                 textAlign: "center",
