@@ -1,403 +1,254 @@
-"use client";
-
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { receteler } from "../data/receteler";
-
-type Malzeme = {
-  id: number;
-  ad: string;
-  kullanimAlani: "Sandviç" | "Salata";
-  gramaj: number;
-  birimFiyat: number;
-  kalori100Gr: number;
+export type ReceteMalzeme = {
+  malzeme: string;
+  gram: number;
 };
 
-export default function Receteler() {
-  const [malzemeler, setMalzemeler] = useState<Malzeme[]>([]);
-  const [arama, setArama] = useState("");
-  const [secilenUrun, setSecilenUrun] = useState(
-    receteler[0]?.urun || ""
-  );
-
-  useEffect(() => {
-    const kayitliMalzemeler: Malzeme[] = JSON.parse(
-      localStorage.getItem("aristo-malzemeler") || "[]"
-    );
-
-    setMalzemeler(kayitliMalzemeler);
-  }, []);
-
-  const filtrelenmisReceteler = useMemo(() => {
-    const aranan = arama.trim().toLocaleLowerCase("tr-TR");
-
-    if (!aranan) {
-      return receteler;
-    }
-
-    return receteler.filter((recete) =>
-      recete.urun.toLocaleLowerCase("tr-TR").includes(aranan)
-    );
-  }, [arama]);
-
-  const secilenRecete = useMemo(
-    () =>
-      receteler.find(
-        (recete) => recete.urun === secilenUrun
-      ),
-    [secilenUrun]
-  );
-
-  const hesaplananSatirlar = useMemo(() => {
-    return (secilenRecete?.malzemeler || []).map(
-      (satir) => {
-        const bulunanMalzemeler = malzemeler.filter(
-          (malzeme) => malzeme.ad === satir.malzeme
-        );
-
-        const malzeme =
-          bulunanMalzemeler.find((kayit) =>
-            secilenUrun.includes("Salata")
-              ? kayit.kullanimAlani === "Salata"
-              : kayit.kullanimAlani === "Sandviç"
-          ) || bulunanMalzemeler[0];
-
-        const maliyet = malzeme
-          ? (Number(malzeme.birimFiyat || 0) / 1000) *
-            Number(satir.gram || 0)
-          : 0;
-
-        const kalori = malzeme
-          ? (Number(malzeme.kalori100Gr || 0) / 100) *
-            Number(satir.gram || 0)
-          : 0;
-
-        return {
-          ...satir,
-          maliyet,
-          kalori,
-          eslesti: Boolean(malzeme),
-          fiyatGirildi:
-            Boolean(malzeme) &&
-            Number(malzeme?.birimFiyat || 0) > 0,
-          kaloriGirildi:
-            Boolean(malzeme) &&
-            Number(malzeme?.kalori100Gr || 0) > 0,
-        };
-      }
-    );
-  }, [secilenRecete, malzemeler, secilenUrun]);
-
-  const toplamMaliyet = hesaplananSatirlar.reduce(
-    (toplam, satir) => toplam + satir.maliyet,
-    0
-  );
-
-  const toplamKalori = hesaplananSatirlar.reduce(
-    (toplam, satir) => toplam + satir.kalori,
-    0
-  );
-
-  const toplamGramaj = hesaplananSatirlar.reduce(
-    (toplam, satir) =>
-      toplam + Number(satir.gram || 0),
-    0
-  );
-
-  const eslesmeyenSayisi = hesaplananSatirlar.filter(
-    (satir) => !satir.eslesti
-  ).length;
-
-  const fiyatEksikSayisi = hesaplananSatirlar.filter(
-    (satir) => satir.eslesti && !satir.fiyatGirildi
-  ).length;
-
-  const kaloriEksikSayisi = hesaplananSatirlar.filter(
-    (satir) => satir.eslesti && !satir.kaloriGirildi
-  ).length;
-
-  const para = (tutar: number) =>
-    new Intl.NumberFormat("tr-TR", {
-      style: "currency",
-      currency: "TRY",
-    }).format(tutar);
-
-  const kartStili = {
-    background: "#ffffff",
-    border: "1px solid #e5e7eb",
-    borderRadius: "18px",
-    padding: "20px",
-    boxShadow: "0 8px 20px rgba(0,0,0,0.06)",
-  };
-
-  const alanStili = {
-    width: "100%",
-    padding: "11px",
-    border: "1px solid #d1d5db",
-    borderRadius: "10px",
-    boxSizing: "border-box" as const,
-    background: "#ffffff",
-  };
-
-  return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#f4f7f5",
-        padding: "30px 18px",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
-      <div
-        style={{
-          maxWidth: "1000px",
-          margin: "0 auto",
-        }}
-      >
-        <Link href="/">← Ana Sayfaya Dön</Link>
-
-        <h1 style={{ marginBottom: "6px" }}>
-          📋 Reçeteler
-        </h1>
-
-        <p
-          style={{
-            marginTop: 0,
-            marginBottom: "24px",
-            color: "#6b7280",
-          }}
-        >
-          Ürün içeriklerini, maliyetlerini ve kalorilerini
-          görüntüle.
-        </p>
-
-        <section
-          style={{
-            ...kartStili,
-            display: "grid",
-            gridTemplateColumns:
-              "repeat(auto-fit, minmax(240px, 1fr))",
-            gap: "16px",
-            marginBottom: "24px",
-          }}
-        >
-          <div>
-            <label>
-              <strong>Ürün Ara</strong>
-            </label>
-
-            <input
-              value={arama}
-              onChange={(event) =>
-                setArama(event.target.value)
-              }
-              placeholder="Örneğin: Aristo"
-              style={{
-                ...alanStili,
-                marginTop: "7px",
-              }}
-            />
-          </div>
-
-          <div>
-            <label>
-              <strong>Ürün Seç</strong>
-            </label>
-
-            <select
-              value={secilenUrun}
-              onChange={(event) =>
-                setSecilenUrun(event.target.value)
-              }
-              style={{
-                ...alanStili,
-                marginTop: "7px",
-              }}
-            >
-              {filtrelenmisReceteler.map((recete) => (
-                <option
-                  key={recete.urun}
-                  value={recete.urun}
-                >
-                  {recete.urun}
-                </option>
-              ))}
-            </select>
-          </div>
-        </section>
-
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns:
-              "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: "14px",
-            marginBottom: "24px",
-          }}
-        >
-          <div style={kartStili}>
-            <small style={{ color: "#6b7280" }}>
-              Toplam gramaj
-            </small>
-
-            <h2 style={{ marginBottom: 0 }}>
-              {toplamGramaj} g
-            </h2>
-          </div>
-
-          <div style={kartStili}>
-            <small style={{ color: "#6b7280" }}>
-              Toplam maliyet
-            </small>
-
-            <h2
-              style={{
-                marginBottom: 0,
-                color: "#174d38",
-              }}
-            >
-              {para(toplamMaliyet)}
-            </h2>
-          </div>
-
-          <div style={kartStili}>
-            <small style={{ color: "#6b7280" }}>
-              Toplam kalori
-            </small>
-
-            <h2 style={{ marginBottom: 0 }}>
-              {toplamKalori.toFixed(1)} kcal
-            </h2>
-          </div>
-
-          <div style={kartStili}>
-            <small style={{ color: "#6b7280" }}>
-              Malzeme sayısı
-            </small>
-
-            <h2 style={{ marginBottom: 0 }}>
-              {hesaplananSatirlar.length}
-            </h2>
-          </div>
-        </section>
-
-        {(eslesmeyenSayisi > 0 ||
-          fiyatEksikSayisi > 0 ||
-          kaloriEksikSayisi > 0) && (
-          <section
-            style={{
-              ...kartStili,
-              borderColor: "#f59e0b",
-              background: "#fffbeb",
-              marginBottom: "24px",
-            }}
-          >
-            <strong>⚠️ Eksik bilgiler</strong>
-
-            <p style={{ marginBottom: 0 }}>
-              Eşleşmeyen: {eslesmeyenSayisi} · Fiyatı eksik:{" "}
-              {fiyatEksikSayisi} · Kalorisi eksik:{" "}
-              {kaloriEksikSayisi}
-            </p>
-          </section>
-        )}
-
-        <section style={kartStili}>
-          <h2 style={{ marginTop: 0 }}>
-            {secilenUrun}
-          </h2>
-
-          <div style={{ overflowX: "auto" }}>
-            <table
-              style={{
-                width: "100%",
-                minWidth: "720px",
-                borderCollapse: "collapse",
-              }}
-            >
-              <thead>
-                <tr>
-                  <th style={hucre}>Malzeme</th>
-                  <th style={hucre}>Gramaj</th>
-                  <th style={hucre}>Maliyet</th>
-                  <th style={hucre}>Kalori</th>
-                  <th style={hucre}>Durum</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {hesaplananSatirlar.map(
-                  (satir, index) => (
-                    <tr
-                      key={`${satir.malzeme}-${index}`}
-                    >
-                      <td style={hucre}>
-                        <strong>{satir.malzeme}</strong>
-                      </td>
-
-                      <td style={hucre}>
-                        {satir.gram} g
-                      </td>
-
-                      <td style={hucre}>
-                        {satir.fiyatGirildi
-                          ? para(satir.maliyet)
-                          : "—"}
-                      </td>
-
-                      <td style={hucre}>
-                        {satir.kaloriGirildi
-                          ? `${satir.kalori.toFixed(
-                              1
-                            )} kcal`
-                          : "—"}
-                      </td>
-
-                      <td
-                        style={{
-                          ...hucre,
-                          color: !satir.eslesti
-                            ? "#b91c1c"
-                            : satir.fiyatGirildi &&
-                              satir.kaloriGirildi
-                            ? "#15803d"
-                            : "#b45309",
-                          fontWeight: "bold",
-                        }}
-                      >
-                        {!satir.eslesti
-                          ? "Eşleşmedi"
-                          : satir.fiyatGirildi &&
-                            satir.kaloriGirildi
-                          ? "Hazır"
-                          : "Eksik bilgi"}
-                      </td>
-                    </tr>
-                  )
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {hesaplananSatirlar.length === 0 && (
-            <p
-              style={{
-                textAlign: "center",
-                color: "#6b7280",
-                padding: "25px",
-              }}
-            >
-              Bu ürünün reçetesi bulunamadı.
-            </p>
-          )}
-        </section>
-      </div>
-    </main>
-  );
-}
-
-const hucre = {
-  borderBottom: "1px solid #e5e7eb",
-  padding: "13px 10px",
-  textAlign: "left" as const,
+export type Recete = {
+  urun: string;
+  malzemeler: ReceteMalzeme[];
 };
+
+export const receteler: Recete[] = [
+  {
+    urun: "Thales",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Beyaz Peynir", gram: 55 },
+      { malzeme: "Krem Peynir", gram: 20 },
+      { malzeme: "Kaşar Peyniri", gram: 27 },
+      { malzeme: "Zeytin Ezmesi", gram: 20 },
+      { malzeme: "Domates", gram: 60 },
+      { malzeme: "Salatalık", gram: 50 },
+      { malzeme: "Zeytinyağı", gram: 5 },
+      { malzeme: "Kuru Kekik", gram: 1 },
+      { malzeme: "Kuru Nane", gram: 1 },
+    ],
+  },
+  {
+    urun: "Pisagor",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Iceberg", gram: 15 },
+      { malzeme: "Roka", gram: 15 },
+      { malzeme: "Domates", gram: 60 },
+      { malzeme: "Mısır", gram: 25 },
+      { malzeme: "Köz Biber", gram: 45 },
+      { malzeme: "Beyaz Peynir", gram: 55 },
+      { malzeme: "Zeytinyağı", gram: 5 },
+      { malzeme: "Kuru Kekik", gram: 1 },
+      { malzeme: "Kuru Nane", gram: 1 },
+    ],
+  },
+  {
+    urun: "Heredot",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Iceberg", gram: 15 },
+      { malzeme: "Roka", gram: 15 },
+      { malzeme: "Domates", gram: 60 },
+      { malzeme: "Hellim Peyniri", gram: 52 },
+      { malzeme: "Köz Biber", gram: 45 },
+      { malzeme: "Zeytinyağı", gram: 5 },
+      { malzeme: "Kuru Kekik", gram: 1 },
+      { malzeme: "Kuru Nane", gram: 1 },
+    ],
+  },
+  {
+    urun: "Demokritos",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Domates", gram: 60 },
+      { malzeme: "Lutenitsa Sos", gram: 20 },
+      { malzeme: "Roka", gram: 15 },
+      { malzeme: "Tulum Peyniri", gram: 45 },
+      { malzeme: "Ceviz", gram: 15 },
+      { malzeme: "Mısır", gram: 25 },
+      { malzeme: "Zeytinyağı", gram: 5 },
+      { malzeme: "Kuru Fesleğen", gram: 1 },
+    ],
+  },
+  {
+    urun: "Öklid",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Amerikan Salatası", gram: 60 },
+      { malzeme: "Domates", gram: 60 },
+      { malzeme: "Yeşil Biber", gram: 30 },
+      { malzeme: "Kaşar Peyniri", gram: 27 },
+      { malzeme: "Yumurta", gram: 50 },
+      { malzeme: "Zeytinyağı", gram: 5 },
+      { malzeme: "Kuru Kekik", gram: 1 },
+      { malzeme: "Kuru Nane", gram: 1 },
+    ],
+  },
+  {
+    urun: "Erasmus",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Hindi Salam", gram: 40 },
+      { malzeme: "Kaşar Peyniri", gram: 27 },
+      { malzeme: "Domates", gram: 60 },
+      { malzeme: "Iceberg", gram: 15 },
+      { malzeme: "BBQ Sos", gram: 15 },
+      { malzeme: "Mayonez", gram: 15 },
+    ],
+  },
+  {
+    urun: "Diyojen",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Krem Peynir", gram: 20 },
+      { malzeme: "Iceberg", gram: 15 },
+      { malzeme: "Hindi Füme", gram: 40 },
+      { malzeme: "Köz Biber", gram: 45 },
+      { malzeme: "Domates", gram: 60 },
+      { malzeme: "Turşu", gram: 30 },
+      { malzeme: "Mayonez", gram: 15 },
+    ],
+  },
+  {
+    urun: "Aristo",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Iceberg", gram: 15 },
+      { malzeme: "Domates", gram: 60 },
+      { malzeme: "Dana Jambon", gram: 40 },
+      { malzeme: "Dana Salam", gram: 40 },
+      { malzeme: "Kaşar Peyniri", gram: 27 },
+      { malzeme: "BBQ Sos", gram: 15 },
+      { malzeme: "Mayonez", gram: 15 },
+    ],
+  },
+  {
+    urun: "Spinoza",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Iceberg", gram: 15 },
+      { malzeme: "Domates", gram: 60 },
+      { malzeme: "Dana Jambon", gram: 40 },
+      { malzeme: "Rozbif", gram: 40 },
+      { malzeme: "Kaşar Peyniri", gram: 27 },
+      { malzeme: "BBQ Sos", gram: 15 },
+      { malzeme: "Mayonez", gram: 15 },
+    ],
+  },
+  {
+    urun: "Sokrates",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Krem Peynir", gram: 20 },
+      { malzeme: "Iceberg", gram: 15 },
+      { malzeme: "Domates", gram: 60 },
+      { malzeme: "Ton Balığı", gram: 80 },
+      { malzeme: "Mısır", gram: 25 },
+      { malzeme: "Mayonez", gram: 15 },
+    ],
+  },
+  {
+    urun: "Kopernik",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Amerikan Salatası", gram: 60 },
+      { malzeme: "Kaşar Peyniri", gram: 27 },
+      { malzeme: "Ton Balığı", gram: 80 },
+      { malzeme: "Iceberg", gram: 15 },
+      { malzeme: "Ketçap", gram: 15 },
+    ],
+  },
+  {
+    urun: "Platon",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Krem Peynir", gram: 20 },
+      { malzeme: "Köz Biber", gram: 45 },
+      { malzeme: "Roka", gram: 15 },
+      { malzeme: "Kaşar Peyniri", gram: 27 },
+      { malzeme: "Kuzu Cotto", gram: 40 },
+      { malzeme: "Trüf Mayonez", gram: 15 },
+    ],
+  },
+  {
+    urun: "Heraklitos",
+    malzemeler: [
+      { malzeme: "Baget Ekmek", gram: 180 },
+      { malzeme: "Nutella", gram: 30 },
+      { malzeme: "Muz", gram: 60 },
+      { malzeme: "Kaşar Peyniri", gram: 27 },
+      { malzeme: "Ceviz", gram: 15 },
+      { malzeme: "Bal", gram: 15 },
+      { malzeme: "Tereyağı", gram: 10 },
+    ],
+  },
+  {
+    urun: "Ton Balıklı Salata",
+    malzemeler: [
+      { malzeme: "Iceberg", gram: 140 },
+      { malzeme: "Domates", gram: 125 },
+      { malzeme: "Salatalık", gram: 75 },
+      { malzeme: "Turşu", gram: 25 },
+      { malzeme: "Köz Biber", gram: 40 },
+      { malzeme: "Mısır", gram: 25 },
+      { malzeme: "Ton Balığı", gram: 80 },
+      { malzeme: "Zeytinyağı", gram: 10 },
+    ],
+  },
+  {
+    urun: "Tulum Peynirli & Cevizli Salata",
+    malzemeler: [
+      { malzeme: "Iceberg", gram: 140 },
+      { malzeme: "Domates", gram: 125 },
+      { malzeme: "Salatalık", gram: 75 },
+      { malzeme: "Turşu", gram: 25 },
+      { malzeme: "Köz Biber", gram: 40 },
+      { malzeme: "Roka", gram: 15 },
+      { malzeme: "Mısır", gram: 25 },
+      { malzeme: "Tulum Peyniri", gram: 45 },
+      { malzeme: "Ceviz", gram: 15 },
+      { malzeme: "Nar Ekşisi", gram: 10 },
+      { malzeme: "Zeytinyağı", gram: 10 },
+    ],
+  },
+  {
+    urun: "Hellim Salata",
+    malzemeler: [
+      { malzeme: "Iceberg", gram: 140 },
+      { malzeme: "Domates", gram: 125 },
+      { malzeme: "Salatalık", gram: 75 },
+      { malzeme: "Köz Biber", gram: 40 },
+      { malzeme: "Roka", gram: 15 },
+      { malzeme: "Mısır", gram: 25 },
+      { malzeme: "Hellim Peyniri", gram: 52 },
+      { malzeme: "Dilimli Siyah Zeytin", gram: 25 },
+      { malzeme: "Limon Suyu", gram: 10 },
+      { malzeme: "Zeytinyağı", gram: 10 },
+    ],
+  },
+  {
+    urun: "Akdeniz Salata",
+    malzemeler: [
+      { malzeme: "Iceberg", gram: 140 },
+      { malzeme: "Domates", gram: 125 },
+      { malzeme: "Salatalık", gram: 75 },
+      { malzeme: "Köz Biber", gram: 40 },
+      { malzeme: "Roka", gram: 15 },
+      { malzeme: "Mısır", gram: 25 },
+      { malzeme: "Beyaz Peynir", gram: 55 },
+      { malzeme: "Limon Suyu", gram: 10 },
+      { malzeme: "Zeytinyağı", gram: 10 },
+    ],
+  },
+  {
+    urun: "Aristo Club Salata",
+    malzemeler: [
+      { malzeme: "Iceberg", gram: 140 },
+      { malzeme: "Domates", gram: 125 },
+      { malzeme: "Salatalık", gram: 75 },
+      { malzeme: "Köz Biber", gram: 40 },
+      { malzeme: "Mısır", gram: 25 },
+      { malzeme: "Hindi Füme", gram: 40 },
+      { malzeme: "Dilimli Siyah Zeytin", gram: 25 },
+      { malzeme: "Limon Suyu", gram: 10 },
+      { malzeme: "Zeytinyağı", gram: 10 },
+    ],
+  },
+];
