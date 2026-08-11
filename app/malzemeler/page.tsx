@@ -6,6 +6,7 @@ import {
   malzemeler as varsayilanMalzemeler,
   type Malzeme,
 } from "../data/malzemeler";
+import { supabase } from "../lib/supabase";
 
 export default function Malzemeler() {
   const [malzemeler, setMalzemeler] = useState<Malzeme[]>([]);
@@ -15,58 +16,93 @@ export default function Malzemeler() {
   >("Tümü");
 
   useEffect(() => {
-    const kayitliVeri = localStorage.getItem("aristo-malzemeler");
+    let aktif = true;
 
-    if (!kayitliVeri) {
-      setMalzemeler(varsayilanMalzemeler);
+    async function malzemeleriYukle() {
+      const { data, error } = await supabase
+        .from("malzemeler")
+        .select("*")
+        .order("id", { ascending: true });
 
-      localStorage.setItem(
-        "aristo-malzemeler",
-        JSON.stringify(varsayilanMalzemeler)
-      );
+      if (!aktif) return;
 
-      return;
-    }
+      if (error) {
+        console.error("Malzemeler okunamadı:", error);
+        setMalzemeler([]);
+        return;
+      }
 
-    const eskiMalzemeler: Malzeme[] = JSON.parse(kayitliVeri);
+      if (!data || data.length === 0) {
+        const ilkKayitlar = varsayilanMalzemeler.map((malzeme) => ({
+          id: malzeme.id,
+          ad: malzeme.ad,
+          kullanim_alani: malzeme.kullanimAlani,
+          gramaj: Number(malzeme.gramaj || 0),
+          birim_fiyat: Number(malzeme.birimFiyat || 0),
+        }));
 
-    const birlestirilmisMalzemeler = varsayilanMalzemeler.map(
-      (varsayilan) => {
-        const eski = eskiMalzemeler.find(
-          (kayit) =>
-            kayit.ad === varsayilan.ad &&
-            kayit.kullanimAlani === varsayilan.kullanimAlani
-        );
+        const { error: eklemeHatasi } = await supabase
+          .from("malzemeler")
+          .upsert(ilkKayitlar, { onConflict: "id" });
 
-        if (!eski) {
-          return varsayilan;
+        if (eklemeHatasi) {
+          console.error("Varsayılan malzemeler eklenemedi:", eklemeHatasi);
+          setMalzemeler(varsayilanMalzemeler);
+          return;
         }
 
-        return {
-          ...varsayilan,
-          gramaj: Number(eski.gramaj ?? varsayilan.gramaj),
-          birimFiyat: Number(
-            eski.birimFiyat ?? varsayilan.birimFiyat
-          ),
-        };
+        setMalzemeler(varsayilanMalzemeler);
+        return;
       }
-    );
 
-    setMalzemeler(birlestirilmisMalzemeler);
+      const bulutMalzemeleri: Malzeme[] = data.map((kayit) => {
+        const varsayilan = varsayilanMalzemeler.find(
+          (malzeme) =>
+            malzeme.ad === String(kayit.ad ?? "") &&
+            malzeme.kullanimAlani ===
+              (kayit.kullanim_alani as Malzeme["kullanimAlani"])
+        );
 
-    localStorage.setItem(
-      "aristo-malzemeler",
-      JSON.stringify(birlestirilmisMalzemeler)
-    );
+        return {
+          id: Number(kayit.id),
+          ad: String(kayit.ad ?? ""),
+          kullanimAlani:
+            kayit.kullanim_alani as Malzeme["kullanimAlani"],
+          gramaj: Number(kayit.gramaj || 0),
+          birimFiyat: Number(kayit.birim_fiyat || 0),
+          kalori100Gr: Number(varsayilan?.kalori100Gr || 0),
+        };
+      });
+
+      setMalzemeler(bulutMalzemeleri);
+    }
+
+    malzemeleriYukle();
+
+    return () => {
+      aktif = false;
+    };
   }, []);
 
-  function kaydet(yeniListe: Malzeme[]) {
+  async function kaydet(yeniListe: Malzeme[]) {
     setMalzemeler(yeniListe);
 
-    localStorage.setItem(
-      "aristo-malzemeler",
-      JSON.stringify(yeniListe)
-    );
+    const bulutKayitlari = yeniListe.map((malzeme) => ({
+      id: malzeme.id,
+      ad: malzeme.ad,
+      kullanim_alani: malzeme.kullanimAlani,
+      gramaj: Number(malzeme.gramaj || 0),
+      birim_fiyat: Number(malzeme.birimFiyat || 0),
+    }));
+
+    const { error } = await supabase
+      .from("malzemeler")
+      .upsert(bulutKayitlari, { onConflict: "id" });
+
+    if (error) {
+      console.error("Malzemeler kaydedilemedi:", error);
+      window.alert("Malzemeler buluta kaydedilemedi.");
+    }
   }
 
   function guncelle(
