@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   malzemeler as varsayilanMalzemeler,
-  type Malzeme,
+  type Malzeme as TemelMalzeme,
 } from "../data/malzemeler";
 import { supabase } from "../lib/supabase";
+
+type FiyatTipi = "kg" | "adet" | "direkt";
+type Malzeme = TemelMalzeme & { fiyatTipi: FiyatTipi };
 
 export default function Malzemeler() {
   const [malzemeler, setMalzemeler] = useState<Malzeme[]>([]);
@@ -39,6 +42,7 @@ export default function Malzemeler() {
           kullanim_alani: malzeme.kullanimAlani,
           gramaj: Number(malzeme.gramaj || 0),
           birim_fiyat: Number(malzeme.birimFiyat || 0),
+          fiyat_tipi: "kg",
         }));
 
         const { error: eklemeHatasi } = await supabase
@@ -47,11 +51,21 @@ export default function Malzemeler() {
 
         if (eklemeHatasi) {
           console.error("Varsayılan malzemeler eklenemedi:", eklemeHatasi);
-          setMalzemeler(varsayilanMalzemeler);
+          setMalzemeler(
+            varsayilanMalzemeler.map((malzeme) => ({
+              ...malzeme,
+              fiyatTipi: "kg" as FiyatTipi,
+            }))
+          );
           return;
         }
 
-        setMalzemeler(varsayilanMalzemeler);
+        setMalzemeler(
+            varsayilanMalzemeler.map((malzeme) => ({
+              ...malzeme,
+              fiyatTipi: "kg" as FiyatTipi,
+            }))
+          );
         return;
       }
 
@@ -71,6 +85,9 @@ export default function Malzemeler() {
           gramaj: Number(kayit.gramaj || 0),
           birimFiyat: Number(kayit.birim_fiyat || 0),
           kalori100Gr: Number(varsayilan?.kalori100Gr || 0),
+          fiyatTipi: (["kg", "adet", "direkt"].includes(String(kayit.fiyat_tipi))
+            ? String(kayit.fiyat_tipi)
+            : "kg") as FiyatTipi,
         };
       });
 
@@ -93,6 +110,7 @@ export default function Malzemeler() {
       kullanim_alani: malzeme.kullanimAlani,
       gramaj: Number(malzeme.gramaj || 0),
       birim_fiyat: Number(malzeme.birimFiyat || 0),
+      fiyat_tipi: malzeme.fiyatTipi,
     }));
 
     const { error } = await supabase
@@ -122,6 +140,14 @@ export default function Malzemeler() {
     kaydet(yeniListe);
   }
 
+  function fiyatTipiGuncelle(id: number, fiyatTipi: FiyatTipi) {
+    kaydet(
+      malzemeler.map((malzeme) =>
+        malzeme.id === id ? { ...malzeme, fiyatTipi } : malzeme
+      )
+    );
+  }
+
   function varsayilanaDon() {
     const onay = window.confirm(
       "Bütün gramaj ve fiyat bilgileri varsayılana dönsün mü?"
@@ -129,7 +155,12 @@ export default function Malzemeler() {
 
     if (!onay) return;
 
-    kaydet(varsayilanMalzemeler);
+    kaydet(
+      varsayilanMalzemeler.map((malzeme) => ({
+        ...malzeme,
+        fiyatTipi: "kg" as FiyatTipi,
+      }))
+    );
   }
 
   const filtrelenmisMalzemeler = useMemo(() => {
@@ -160,8 +191,11 @@ export default function Malzemeler() {
       ? malzemeler.reduce(
           (toplam, malzeme) =>
             toplam +
-            (Number(malzeme.birimFiyat || 0) / 1000) *
-              Number(malzeme.gramaj || 0),
+            malzeme.fiyatTipi === "kg"
+              ? (Number(malzeme.birimFiyat || 0) / 1000) * Number(malzeme.gramaj || 0)
+              : malzeme.fiyatTipi === "adet"
+              ? Number(malzeme.birimFiyat || 0) * Number(malzeme.gramaj || 0)
+              : Number(malzeme.birimFiyat || 0),
           0
         ) / malzemeler.length
       : 0;
@@ -348,7 +382,7 @@ export default function Malzemeler() {
             <table
               style={{
                 width: "100%",
-                minWidth: "760px",
+                minWidth: "900px",
                 borderCollapse: "collapse",
               }}
             >
@@ -356,8 +390,9 @@ export default function Malzemeler() {
                 <tr>
                   <th style={hucre}>Malzeme</th>
                   <th style={hucre}>Alan</th>
-                  <th style={hucre}>Gramaj</th>
-                  <th style={hucre}>Alış Fiyatı (₺/kg)</th>
+                  <th style={hucre}>Fiyat Tipi</th>
+                  <th style={hucre}>Miktar</th>
+                  <th style={hucre}>Alış Fiyatı</th>
                   <th style={hucre}>Porsiyon Maliyeti</th>
                 </tr>
               </thead>
@@ -365,8 +400,11 @@ export default function Malzemeler() {
               <tbody>
                 {filtrelenmisMalzemeler.map((malzeme) => {
                   const porsiyonMaliyeti =
-                    (Number(malzeme.birimFiyat || 0) / 1000) *
-                    Number(malzeme.gramaj || 0);
+                    malzeme.fiyatTipi === "kg"
+                      ? (Number(malzeme.birimFiyat || 0) / 1000) * Number(malzeme.gramaj || 0)
+                      : malzeme.fiyatTipi === "adet"
+                      ? Number(malzeme.birimFiyat || 0) * Number(malzeme.gramaj || 0)
+                      : Number(malzeme.birimFiyat || 0);
 
                   return (
                     <tr key={malzeme.id}>
@@ -379,10 +417,25 @@ export default function Malzemeler() {
                       </td>
 
                       <td style={hucre}>
+                        <select
+                          value={malzeme.fiyatTipi}
+                          onChange={(event) =>
+                            fiyatTipiGuncelle(malzeme.id, event.target.value as FiyatTipi)
+                          }
+                          style={{ padding: "8px", border: "1px solid #d1d5db", borderRadius: "8px" }}
+                        >
+                          <option value="kg">Kg</option>
+                          <option value="adet">Adet</option>
+                          <option value="direkt">Direkt Fiyat</option>
+                        </select>
+                      </td>
+
+                      <td style={hucre}>
                         <input
                           type="number"
                           min="0"
-                          value={malzeme.gramaj}
+                          disabled={malzeme.fiyatTipi === "direkt"}
+                          value={malzeme.fiyatTipi === "direkt" ? 0 : malzeme.gramaj}
                           onChange={(event) =>
                             guncelle(
                               malzeme.id,
@@ -397,7 +450,7 @@ export default function Malzemeler() {
                             borderRadius: "8px",
                           }}
                         />{" "}
-                        g
+                        {malzeme.fiyatTipi === "kg" ? "g" : malzeme.fiyatTipi === "adet" ? "adet" : "—"}
                       </td>
 
                       <td style={hucre}>
