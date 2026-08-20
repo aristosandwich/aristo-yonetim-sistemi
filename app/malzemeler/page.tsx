@@ -8,8 +8,22 @@ import {
 } from "../data/malzemeler";
 import { supabase } from "../lib/supabase";
 
-type FiyatTipi = "kg" | "adet" | "direkt";
-type Malzeme = TemelMalzeme & { fiyatTipi: FiyatTipi };
+type Malzeme = TemelMalzeme & {
+  direktFiyat: number;
+};
+
+function maliyetHesapla(malzeme: Malzeme) {
+  const direktFiyat = Number(malzeme.direktFiyat || 0);
+
+  if (direktFiyat > 0) {
+    return direktFiyat;
+  }
+
+  return (
+    (Number(malzeme.birimFiyat || 0) / 1000) *
+    Number(malzeme.gramaj || 0)
+  );
+}
 
 export default function Malzemeler() {
   const [malzemeler, setMalzemeler] = useState<Malzeme[]>([]);
@@ -42,30 +56,28 @@ export default function Malzemeler() {
           kullanim_alani: malzeme.kullanimAlani,
           gramaj: Number(malzeme.gramaj || 0),
           birim_fiyat: Number(malzeme.birimFiyat || 0),
-          fiyat_tipi: "kg",
+          direkt_fiyat: 0,
         }));
 
         const { error: eklemeHatasi } = await supabase
           .from("malzemeler")
           .upsert(ilkKayitlar, { onConflict: "id" });
 
+        const yerelListe: Malzeme[] = varsayilanMalzemeler.map(
+          (malzeme) => ({
+            ...malzeme,
+            direktFiyat: 0,
+          })
+        );
+
         if (eklemeHatasi) {
-          console.error("Varsayılan malzemeler eklenemedi:", eklemeHatasi);
-          setMalzemeler(
-            varsayilanMalzemeler.map((malzeme) => ({
-              ...malzeme,
-              fiyatTipi: "kg" as FiyatTipi,
-            }))
+          console.error(
+            "Varsayılan malzemeler eklenemedi:",
+            eklemeHatasi
           );
-          return;
         }
 
-        setMalzemeler(
-            varsayilanMalzemeler.map((malzeme) => ({
-              ...malzeme,
-              fiyatTipi: "kg" as FiyatTipi,
-            }))
-          );
+        setMalzemeler(yerelListe);
         return;
       }
 
@@ -74,20 +86,18 @@ export default function Malzemeler() {
           (malzeme) =>
             malzeme.ad === String(kayit.ad ?? "") &&
             malzeme.kullanimAlani ===
-              (kayit.kullanim_alani as Malzeme["kullanimAlani"])
+              (kayit.kullanim_alani as TemelMalzeme["kullanimAlani"])
         );
 
         return {
           id: Number(kayit.id),
           ad: String(kayit.ad ?? ""),
           kullanimAlani:
-            kayit.kullanim_alani as Malzeme["kullanimAlani"],
+            kayit.kullanim_alani as TemelMalzeme["kullanimAlani"],
           gramaj: Number(kayit.gramaj || 0),
           birimFiyat: Number(kayit.birim_fiyat || 0),
           kalori100Gr: Number(varsayilan?.kalori100Gr || 0),
-          fiyatTipi: (["kg", "adet", "direkt"].includes(String(kayit.fiyat_tipi))
-            ? String(kayit.fiyat_tipi)
-            : "kg") as FiyatTipi,
+          direktFiyat: Number(kayit.direkt_fiyat || 0),
         };
       });
 
@@ -110,7 +120,7 @@ export default function Malzemeler() {
       kullanim_alani: malzeme.kullanimAlani,
       gramaj: Number(malzeme.gramaj || 0),
       birim_fiyat: Number(malzeme.birimFiyat || 0),
-      fiyat_tipi: malzeme.fiyatTipi,
+      direkt_fiyat: Number(malzeme.direktFiyat || 0),
     }));
 
     const { error } = await supabase
@@ -125,7 +135,7 @@ export default function Malzemeler() {
 
   function guncelle(
     id: number,
-    alanAdi: "gramaj" | "birimFiyat",
+    alanAdi: "gramaj" | "birimFiyat" | "direktFiyat",
     deger: number
   ) {
     const yeniListe = malzemeler.map((malzeme) =>
@@ -137,15 +147,7 @@ export default function Malzemeler() {
         : malzeme
     );
 
-    kaydet(yeniListe);
-  }
-
-  function fiyatTipiGuncelle(id: number, fiyatTipi: FiyatTipi) {
-    kaydet(
-      malzemeler.map((malzeme) =>
-        malzeme.id === id ? { ...malzeme, fiyatTipi } : malzeme
-      )
-    );
+    void kaydet(yeniListe);
   }
 
   function varsayilanaDon() {
@@ -155,12 +157,14 @@ export default function Malzemeler() {
 
     if (!onay) return;
 
-    kaydet(
-      varsayilanMalzemeler.map((malzeme) => ({
+    const yeniListe: Malzeme[] = varsayilanMalzemeler.map(
+      (malzeme) => ({
         ...malzeme,
-        fiyatTipi: "kg" as FiyatTipi,
-      }))
+        direktFiyat: 0,
+      })
     );
+
+    void kaydet(yeniListe);
   }
 
   const filtrelenmisMalzemeler = useMemo(() => {
@@ -183,19 +187,16 @@ export default function Malzemeler() {
   const toplamMalzeme = malzemeler.length;
 
   const fiyatGirilenMalzeme = malzemeler.filter(
-    (malzeme) => Number(malzeme.birimFiyat || 0) > 0
+    (malzeme) =>
+      Number(malzeme.birimFiyat || 0) > 0 ||
+      Number(malzeme.direktFiyat || 0) > 0
   ).length;
 
   const ortalamaPorsiyonMaliyeti =
     malzemeler.length > 0
       ? malzemeler.reduce(
           (toplam, malzeme) =>
-            toplam +
-            malzeme.fiyatTipi === "kg"
-              ? (Number(malzeme.birimFiyat || 0) / 1000) * Number(malzeme.gramaj || 0)
-              : malzeme.fiyatTipi === "adet"
-              ? Number(malzeme.birimFiyat || 0) * Number(malzeme.gramaj || 0)
-              : Number(malzeme.birimFiyat || 0),
+            toplam + maliyetHesapla(malzeme),
           0
         ) / malzemeler.length
       : 0;
@@ -234,7 +235,7 @@ export default function Malzemeler() {
     >
       <div
         style={{
-          maxWidth: "1200px",
+          maxWidth: "1250px",
           margin: "0 auto",
         }}
       >
@@ -251,8 +252,9 @@ export default function Malzemeler() {
             color: "#6b7280",
           }}
         >
-          Gramaj ve alış fiyatı bilgilerini yönet.
-          Kalori bilgileri ayrı Kalori Hesabı ekranındadır.
+          Gramaj ve kg fiyatından hesapla veya direkt porsiyon
+          maliyeti gir. Direkt fiyat girilmişse hesaplamada o
+          kullanılır. Kalori ayrı Kalori Hesabı ekranındadır.
         </p>
 
         <section
@@ -382,7 +384,7 @@ export default function Malzemeler() {
             <table
               style={{
                 width: "100%",
-                minWidth: "900px",
+                minWidth: "1050px",
                 borderCollapse: "collapse",
               }}
             >
@@ -390,21 +392,22 @@ export default function Malzemeler() {
                 <tr>
                   <th style={hucre}>Malzeme</th>
                   <th style={hucre}>Alan</th>
-                  <th style={hucre}>Fiyat Tipi</th>
-                  <th style={hucre}>Miktar</th>
-                  <th style={hucre}>Alış Fiyatı</th>
-                  <th style={hucre}>Porsiyon Maliyeti</th>
+                  <th style={hucre}>Gramaj</th>
+                  <th style={hucre}>Kg Fiyatı</th>
+                  <th style={hucre}>Gram Maliyeti</th>
+                  <th style={hucre}>Direkt Fiyat</th>
+                  <th style={hucre}>Kullanılan Maliyet</th>
                 </tr>
               </thead>
 
               <tbody>
                 {filtrelenmisMalzemeler.map((malzeme) => {
-                  const porsiyonMaliyeti =
-                    malzeme.fiyatTipi === "kg"
-                      ? (Number(malzeme.birimFiyat || 0) / 1000) * Number(malzeme.gramaj || 0)
-                      : malzeme.fiyatTipi === "adet"
-                      ? Number(malzeme.birimFiyat || 0) * Number(malzeme.gramaj || 0)
-                      : Number(malzeme.birimFiyat || 0);
+                  const gramMaliyeti =
+                    (Number(malzeme.birimFiyat || 0) / 1000) *
+                    Number(malzeme.gramaj || 0);
+
+                  const kullanilanMaliyet =
+                    maliyetHesapla(malzeme);
 
                   return (
                     <tr key={malzeme.id}>
@@ -417,25 +420,10 @@ export default function Malzemeler() {
                       </td>
 
                       <td style={hucre}>
-                        <select
-                          value={malzeme.fiyatTipi}
-                          onChange={(event) =>
-                            fiyatTipiGuncelle(malzeme.id, event.target.value as FiyatTipi)
-                          }
-                          style={{ padding: "8px", border: "1px solid #d1d5db", borderRadius: "8px" }}
-                        >
-                          <option value="kg">Kg</option>
-                          <option value="adet">Adet</option>
-                          <option value="direkt">Direkt Fiyat</option>
-                        </select>
-                      </td>
-
-                      <td style={hucre}>
                         <input
                           type="number"
                           min="0"
-                          disabled={malzeme.fiyatTipi === "direkt"}
-                          value={malzeme.fiyatTipi === "direkt" ? 0 : malzeme.gramaj}
+                          value={malzeme.gramaj}
                           onChange={(event) =>
                             guncelle(
                               malzeme.id,
@@ -450,13 +438,14 @@ export default function Malzemeler() {
                             borderRadius: "8px",
                           }}
                         />{" "}
-                        {malzeme.fiyatTipi === "kg" ? "g" : malzeme.fiyatTipi === "adet" ? "adet" : "—"}
+                        g
                       </td>
 
                       <td style={hucre}>
                         <input
                           type="number"
                           min="0"
+                          step="0.01"
                           value={malzeme.birimFiyat}
                           onChange={(event) =>
                             guncelle(
@@ -474,17 +463,43 @@ export default function Malzemeler() {
                         />
                       </td>
 
+                      <td style={hucre}>
+                        {para(gramMaliyeti)}
+                      </td>
+
+                      <td style={hucre}>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={malzeme.direktFiyat}
+                          onChange={(event) =>
+                            guncelle(
+                              malzeme.id,
+                              "direktFiyat",
+                              Number(event.target.value)
+                            )
+                          }
+                          style={{
+                            width: "110px",
+                            padding: "8px",
+                            border: "1px solid #d1d5db",
+                            borderRadius: "8px",
+                          }}
+                        />
+                      </td>
+
                       <td
                         style={{
                           ...hucre,
                           fontWeight: "bold",
                           color:
-                            porsiyonMaliyeti > 0
+                            kullanilanMaliyet > 0
                               ? "#174d38"
                               : "#6b7280",
                         }}
                       >
-                        {para(porsiyonMaliyeti)}
+                        {para(kullanilanMaliyet)}
                       </td>
                     </tr>
                   );
