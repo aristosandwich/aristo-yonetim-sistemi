@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "../lib/supabase";
 
 type HeaderAyarlari = {
@@ -36,6 +36,7 @@ function headerAyarlariniAyikla(
 
 export default function Header() {
   const pathname = usePathname();
+  const router = useRouter();
 
   const [headerAyarlari, setHeaderAyarlari] =
     useState<HeaderAyarlari>(VARSAYILAN_AYARLAR);
@@ -178,6 +179,19 @@ export default function Header() {
     };
   }, [yazi, siliniyor, headerAyarlari.altBaslik]);
 
+  async function cikisYap() {
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error("Çıkış yapılamadı:", error);
+      alert("Çıkış yapılamadı. Tekrar dene.");
+      return;
+    }
+
+    router.replace("/giris");
+    router.refresh();
+  }
+
   return (
     <header
       className="aristo-header"
@@ -225,6 +239,17 @@ export default function Header() {
             0 9px 22px rgba(246, 201, 69, 0.4) !important;
         }
 
+        .aristo-cikis {
+          transition:
+            transform 0.18s ease,
+            box-shadow 0.18s ease;
+        }
+
+        .aristo-cikis:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 18px rgba(185, 28, 28, 0.2) !important;
+        }
+
         @media (max-width: 700px) {
           .aristo-header {
             padding: 20px !important;
@@ -241,6 +266,10 @@ export default function Header() {
           }
 
           .aristo-ana-sayfa {
+            width: 100%;
+          }
+
+          .aristo-cikis {
             width: 100%;
           }
         }
@@ -347,10 +376,41 @@ export default function Header() {
         </div>
       </div>
 
-      {pathname !== "/" && (
-        <Link
-          className="aristo-ana-sayfa"
-          href="/"
+      <div
+        style={{
+          display: "flex",
+          gap: "10px",
+          flexWrap: "wrap",
+        }}
+      >
+        {pathname !== "/" && (
+          <Link
+            className="aristo-ana-sayfa"
+            href="/"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: "50px",
+              padding: "13px 19px",
+              borderRadius: "14px",
+              background: "#f6c945",
+              color: "#3f3100",
+              textDecoration: "none",
+              fontWeight: 800,
+              border: "1px solid #dbae17",
+              boxShadow: "0 6px 16px rgba(246,201,69,.28)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            🏠 Ana Sayfa
+          </Link>
+        )}
+
+        <button
+          className="aristo-cikis"
+          type="button"
+          onClick={() => void cikisYap()}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -358,18 +418,18 @@ export default function Header() {
             minHeight: "50px",
             padding: "13px 19px",
             borderRadius: "14px",
-            background: "#f6c945",
-            color: "#3f3100",
-            textDecoration: "none",
+            background: "#ffffff",
+            color: "#991b1b",
             fontWeight: 800,
-            border: "1px solid #dbae17",
-            boxShadow: "0 6px 16px rgba(246,201,69,.28)",
+            border: "1px solid #fecaca",
+            boxShadow: "0 6px 16px rgba(185,28,28,.08)",
             whiteSpace: "nowrap",
+            cursor: "pointer",
           }}
         >
-          🏠 Ana Sayfa
-        </Link>
-      )}
+          🚪 Çıkış
+        </button>
+      </div>
     </header>
   );
 }

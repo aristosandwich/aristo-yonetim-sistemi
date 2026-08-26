@@ -1,22 +1,46 @@
 "use client";
 
+import Image from "next/image";
+import type { FormEvent } from "react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "../lib/supabase";
 
 export default function Giris() {
   const router = useRouter();
-
+  const [eposta, setEposta] = useState("");
   const [sifre, setSifre] = useState("");
   const [hata, setHata] = useState("");
+  const [girisYapiliyor, setGirisYapiliyor] =
+    useState(false);
 
-  function girisYap() {
-    if (sifre === "1234") {
-      localStorage.setItem("aristo-giris", "tamam");
-      router.push("/");
+  async function girisYap(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+
+    const temizEposta = eposta.trim();
+
+    if (!temizEposta || !sifre) {
+      setHata("E-posta ve şifre alanlarını doldur.");
       return;
     }
 
-    setHata("Şifre yanlış.");
+    setHata("");
+    setGirisYapiliyor(true);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: temizEposta,
+      password: sifre,
+    });
+
+    if (error) {
+      console.error("Giriş yapılamadı:", error);
+      setHata("E-posta veya şifre hatalı.");
+      setGirisYapiliyor(false);
+      return;
+    }
+
+    router.replace("/");
+    router.refresh();
   }
 
   return (
@@ -25,80 +49,192 @@ export default function Giris() {
         minHeight: "100vh",
         display: "grid",
         placeItems: "center",
-        background: "#f4f7f5",
-        padding: "20px",
+        background:
+          "linear-gradient(145deg, #edf5f0 0%, #f8faf9 55%, #fff8dd 100%)",
+        padding: "24px",
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <div
+      <section
         style={{
           width: "100%",
-          maxWidth: "380px",
+          maxWidth: "440px",
           background: "#ffffff",
           border: "1px solid #e5e7eb",
-          borderRadius: "18px",
-          padding: "28px",
-          boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+          borderTop: "4px solid #111111",
+          borderRadius: "24px",
+          padding: "30px",
+          boxShadow: "0 18px 45px rgba(0,0,0,.10)",
         }}
       >
-        <h1>🔒 Aristo Giriş</h1>
-
-        <p>Yönetim sistemine giriş yap.</p>
-
-        <input
-          type="password"
-          placeholder="Şifre"
-          value={sifre}
-          onChange={(event) => {
-            setSifre(event.target.value);
-            setHata("");
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              girisYap();
-            }
-          }}
+        <div
           style={{
-            width: "100%",
-            padding: "12px",
-            boxSizing: "border-box",
-            marginBottom: "14px",
+            display: "flex",
+            alignItems: "center",
+            gap: "18px",
+            marginBottom: "26px",
           }}
-        />
+        >
+          <Image
+            src="/aristo-logo.png"
+            alt="Aristo"
+            width={86}
+            height={86}
+            priority
+            style={{
+              width: "86px",
+              height: "86px",
+              objectFit: "contain",
+              borderRadius: "50%",
+              boxShadow: "0 7px 18px rgba(0,0,0,.12)",
+            }}
+          />
 
-        <button
-          onClick={girisYap}
+          <div>
+            <h1
+              style={{
+                margin: 0,
+                color: "#111111",
+                fontSize: "34px",
+                lineHeight: 1,
+                fontWeight: 900,
+              }}
+            >
+              ARISTO
+            </h1>
+            <p
+              style={{
+                margin: "8px 0 0",
+                color: "#174d38",
+                fontWeight: 800,
+              }}
+            >
+              Yönetim Sistemi
+            </p>
+          </div>
+        </div>
+
+        <h2
           style={{
-            width: "100%",
-            padding: "12px",
-            background: "#174d38",
-            color: "#ffffff",
-            border: "none",
-            borderRadius: "10px",
-            fontWeight: "bold",
-            cursor: "pointer",
+            margin: "0 0 8px",
+            color: "#153f30",
+            fontSize: "24px",
           }}
         >
           Giriş Yap
-        </button>
-
-        {hata && (
-          <p style={{ color: "#b91c1c", marginBottom: 0 }}>
-            {hata}
-          </p>
-        )}
+        </h2>
 
         <p
           style={{
-            marginTop: "18px",
-            marginBottom: 0,
-            fontSize: "13px",
+            margin: "0 0 22px",
             color: "#6b7280",
+            lineHeight: 1.5,
           }}
         >
-          Geçici şifre: 1234
+          Yönetim paneline devam etmek için bilgilerini gir.
         </p>
-      </div>
+
+        <form onSubmit={girisYap}>
+          <label
+            htmlFor="eposta"
+            style={{
+              display: "block",
+              marginBottom: "7px",
+              color: "#374151",
+              fontWeight: 700,
+            }}
+          >
+            E-posta
+          </label>
+
+          <input
+            id="eposta"
+            type="email"
+            value={eposta}
+            onChange={(e) => setEposta(e.target.value)}
+            autoComplete="email"
+            autoFocus
+            disabled={girisYapiliyor}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "13px 14px",
+              border: "1px solid #d1d5db",
+              borderRadius: "11px",
+              background: "#ffffff",
+              fontSize: "16px",
+              marginBottom: "16px",
+            }}
+          />
+
+          <label
+            htmlFor="sifre"
+            style={{
+              display: "block",
+              marginBottom: "7px",
+              color: "#374151",
+              fontWeight: 700,
+            }}
+          >
+            Şifre
+          </label>
+
+          <input
+            id="sifre"
+            type="password"
+            value={sifre}
+            onChange={(e) => setSifre(e.target.value)}
+            autoComplete="current-password"
+            disabled={girisYapiliyor}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "13px 14px",
+              border: "1px solid #d1d5db",
+              borderRadius: "11px",
+              background: "#ffffff",
+              fontSize: "16px",
+            }}
+          />
+
+          {hata && (
+            <div
+              role="alert"
+              style={{
+                marginTop: "16px",
+                padding: "12px 14px",
+                borderRadius: "10px",
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                color: "#b91c1c",
+                fontWeight: 700,
+              }}
+            >
+              {hata}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={girisYapiliyor}
+            style={{
+              width: "100%",
+              minHeight: "50px",
+              marginTop: "20px",
+              border: "none",
+              borderRadius: "12px",
+              background: girisYapiliyor ? "#6b8b7d" : "#174d38",
+              color: "#ffffff",
+              fontSize: "16px",
+              fontWeight: 800,
+              cursor: girisYapiliyor ? "wait" : "pointer",
+              boxShadow: "0 8px 18px rgba(23,77,56,.22)",
+            }}
+          >
+            {girisYapiliyor ? "Giriş yapılıyor…" : "🔐 Giriş Yap"}
+          </button>
+        </form>
+      </section>
     </main>
   );
 }
