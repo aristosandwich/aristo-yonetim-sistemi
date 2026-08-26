@@ -8,6 +8,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { supabase } from "./lib/supabase";
 
 const ARISTO_YESILI = "#174d38";
 const CIVIT_MAVISI = "#294b8f";
@@ -29,12 +30,6 @@ type SatisKaydi = TarihliKayit & {
 
 type GiderKaydi = TarihliKayit & {
   tutar?: number;
-};
-
-type KasaKapanisi = {
-  gunAnahtari?: string;
-  sayilanKasa?: number;
-  beklenenKasa?: number;
 };
 
 const anaIslemler = [
@@ -163,20 +158,6 @@ const yonetimBolumleri = [
   },
 ];
 
-function depodanOku<T>(anahtar: string): T[] {
-  try {
-    const veri = JSON.parse(
-      localStorage.getItem(anahtar) || "[]"
-    );
-
-    return Array.isArray(veri)
-      ? (veri as T[])
-      : [];
-  } catch {
-    return [];
-  }
-}
-
 function para(tutar: number) {
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
@@ -250,16 +231,6 @@ function platformSatisKaydiMi(
   ].includes(platform || "");
 }
 
-function bugunAnahtari() {
-  const tarih = new Date();
-
-  return [
-    tarih.getFullYear(),
-    String(tarih.getMonth() + 1).padStart(2, "0"),
-    String(tarih.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
 export default function Home() {
   const [yonetimAcik, setYonetimAcik] =
     useState(false);
@@ -270,72 +241,128 @@ export default function Home() {
   const [giderler, setGiderler] =
     useState<GiderKaydi[]>([]);
 
-  const [kasaKapanislari, setKasaKapanislari] =
-    useState<KasaKapanisi[]>([]);
-
   const [kasadakiPara, setKasadakiPara] =
     useState(0);
 
   useEffect(() => {
-    function verileriYukle() {
-      setSatislar(
-        depodanOku<SatisKaydi>(
-          "aristo-satislar"
-        )
-      );
+    let aktif = true;
 
-      setGiderler(
-        depodanOku<GiderKaydi>(
-          "aristo-giderler"
-        )
-      );
+    async function verileriYukle() {
+      const [
+        satisSonucu,
+        giderSonucu,
+        kasaSonucu,
+      ] = await Promise.all([
+        supabase
+          .from("satislar")
+          .select(
+            "id, islem_id, tarih, platform, toplam, adet"
+          )
+          .order("islem_id", {
+            ascending: false,
+          }),
+        supabase
+          .from("giderler")
+          .select("id, tarih, tutar")
+          .order("tarih", {
+            ascending: false,
+          }),
+        supabase
+          .from("kasa")
+          .select("id, tutar")
+          .eq("id", 1)
+          .maybeSingle(),
+      ]);
 
-      setKasaKapanislari(
-        depodanOku<KasaKapanisi>(
-          "aristo-kasa-kapanislari"
-        )
-      );
+      if (!aktif) {
+        return;
+      }
 
-      setKasadakiPara(
-        Number(
-          localStorage.getItem(
-            "aristo-kasa"
-          ) || 0
-        )
-      );
+      const hatalar = [
+        satisSonucu.error,
+        giderSonucu.error,
+        kasaSonucu.error,
+      ].filter(Boolean);
+
+      if (hatalar.length > 0) {
+        console.error(
+          "Ana sayfa verileri okunamadı:",
+          hatalar
+        );
+        window.alert(
+          "Ana sayfa verileri buluttan okunamadı."
+        );
+      }
+
+      if (!satisSonucu.error) {
+        setSatislar(
+          (satisSonucu.data || []).map(
+            (kayit) => ({
+              id: Number(kayit.id || 0),
+              islemId: Number(
+                kayit.islem_id ||
+                  kayit.id ||
+                  0
+              ),
+              tarih: String(
+                kayit.tarih ?? ""
+              ),
+              platform: String(
+                kayit.platform ?? ""
+              ),
+              toplam: Number(
+                kayit.toplam || 0
+              ),
+              adet: Number(
+                kayit.adet || 0
+              ),
+            })
+          )
+        );
+      }
+
+      if (!giderSonucu.error) {
+        setGiderler(
+          (giderSonucu.data || []).map(
+            (kayit) => ({
+              id: Number(kayit.id || 0),
+              tarih: String(
+                kayit.tarih ?? ""
+              ),
+              tutar: Number(
+                kayit.tutar || 0
+              ),
+            })
+          )
+        );
+      }
+
+      if (!kasaSonucu.error) {
+        setKasadakiPara(
+          Number(
+            kasaSonucu.data?.tutar || 0
+          )
+        );
+      }
     }
 
-    verileriYukle();
+    function odaklaninca() {
+      void verileriYukle();
+    }
+
+    void verileriYukle();
 
     window.addEventListener(
       "focus",
-      verileriYukle
+      odaklaninca
     );
-
-    window.addEventListener(
-      "storage",
-      verileriYukle
-    );
-
-    const zamanlayici =
-      window.setInterval(
-        verileriYukle,
-        5000
-      );
 
     return () => {
+      aktif = false;
+
       window.removeEventListener(
         "focus",
-        verileriYukle
-      );
-
-      window.removeEventListener(
-        "storage",
-        verileriYukle
-      );
-
-      window.clearInterval(
-        zamanlayici
+        odaklaninca
       );
     };
   }, []);
@@ -397,22 +424,6 @@ export default function Home() {
       0
     );
 
-  const bugunkuKapanis =
-    kasaKapanislari.find(
-      (kayit) =>
-        kayit.gunAnahtari ===
-        bugunAnahtari()
-    );
-
-  const kasadakiParaGoster =
-    bugunkuKapanis
-      ? Number(
-          bugunkuKapanis.sayilanKasa ??
-            bugunkuKapanis.beklenenKasa ??
-            0
-        )
-      : kasadakiPara;
-
   const ozetKartlari = [
     {
       ikon: "💰",
@@ -452,7 +463,7 @@ export default function Home() {
     {
       ikon: "💵",
       baslik: "Kasadaki Para",
-      deger: para(kasadakiParaGoster),
+      deger: para(kasadakiPara),
       renk: "#7c5200",
       arkaPlan: "#fff8dc",
     },

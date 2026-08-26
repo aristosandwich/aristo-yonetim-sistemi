@@ -1,20 +1,57 @@
 "use client";
 
 import {
-  useMemo,
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
   type CSSProperties,
 } from "react";
 import Header from "../ui/Header";
+import { supabase } from "../lib/supabase";
+
+const YEDEK_TABLOLARI = [
+  "urunler",
+  "malzemeler",
+  "receteler",
+  "satislar",
+  "giderler",
+  "tahsilatlar",
+  "kasa",
+  "mudo",
+  "cari",
+  "takvim",
+  "notlar",
+  "rehber",
+  "ayarlar",
+] as const;
+
+type TabloAdi = (typeof YEDEK_TABLOLARI)[number];
+type TabloKaydi = Record<string, unknown>;
+
+const TABLO_SILME_SIRASI: TabloAdi[] = [
+  "satislar",
+  "receteler",
+  "giderler",
+  "tahsilatlar",
+  "kasa",
+  "mudo",
+  "cari",
+  "takvim",
+  "notlar",
+  "rehber",
+  "ayarlar",
+  "urunler",
+  "malzemeler",
+];
 
 type YedekDosyasi = {
   uygulama: "Aristo Yönetim";
   surum: string;
   olusturmaZamani: string;
   kayitSayisi: number;
-  veriler: Record<string, string>;
+  tablolar: Record<TabloAdi, TabloKaydi[]>;
+  yerelVeriler: Record<string, string>;
 };
 
 type YuklenenYedek = {
@@ -81,6 +118,105 @@ function aristoVerileriniOku() {
   return veriler;
 }
 
+async function tabloyuOku(
+  tablo: TabloAdi
+): Promise<TabloKaydi[]> {
+  const tumKayitlar: TabloKaydi[] = [];
+  const sayfaBoyutu = 1000;
+  let baslangic = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(tablo)
+      .select("*")
+      .order("id", { ascending: true })
+      .range(
+        baslangic,
+        baslangic + sayfaBoyutu - 1
+      );
+
+    if (error) {
+      throw new Error(
+        `${tablo}: ${error.message}`
+      );
+    }
+
+    const sayfa = (data || []) as TabloKaydi[];
+    tumKayitlar.push(...sayfa);
+
+    if (sayfa.length < sayfaBoyutu) {
+      break;
+    }
+
+    baslangic += sayfaBoyutu;
+  }
+
+  return tumKayitlar;
+}
+
+async function bulutVerileriniOku() {
+  const sonuclar = await Promise.all(
+    YEDEK_TABLOLARI.map(async (tablo) => ({
+      tablo,
+      kayitlar: await tabloyuOku(tablo),
+    }))
+  );
+
+  const tablolar = {} as Record<
+    TabloAdi,
+    TabloKaydi[]
+  >;
+
+  sonuclar.forEach(({ tablo, kayitlar }) => {
+    tablolar[tablo] = kayitlar;
+  });
+
+  return tablolar;
+}
+
+async function tabloyuTemizle(
+  tablo: TabloAdi
+) {
+  const { error } = await supabase
+    .from(tablo)
+    .delete()
+    .not("id", "is", null);
+
+  if (error) {
+    throw new Error(
+      `${tablo}: ${error.message}`
+    );
+  }
+}
+
+async function tabloKayitlariniEkle(
+  tablo: TabloAdi,
+  kayitlar: TabloKaydi[]
+) {
+  const parcaBoyutu = 500;
+
+  for (
+    let baslangic = 0;
+    baslangic < kayitlar.length;
+    baslangic += parcaBoyutu
+  ) {
+    const parca = kayitlar.slice(
+      baslangic,
+      baslangic + parcaBoyutu
+    );
+
+    const { error } = await supabase
+      .from(tablo)
+      .insert(parca);
+
+    if (error) {
+      throw new Error(
+        `${tablo}: ${error.message}`
+      );
+    }
+  }
+}
+
 function yedekGecerliMi(deger: unknown): deger is YedekDosyasi {
   if (!deger || typeof deger !== "object") {
     return false;
@@ -93,13 +229,33 @@ function yedekGecerliMi(deger: unknown): deger is YedekDosyasi {
     typeof aday.surum === "string" &&
     typeof aday.olusturmaZamani === "string" &&
     typeof aday.kayitSayisi === "number" &&
-    !!aday.veriler &&
-    typeof aday.veriler === "object" &&
-    !Array.isArray(aday.veriler)
+    !!aday.tablolar &&
+    typeof aday.tablolar === "object" &&
+    !Array.isArray(aday.tablolar) &&
+    !!aday.yerelVeriler &&
+    typeof aday.yerelVeriler === "object" &&
+    !Array.isArray(aday.yerelVeriler)
   );
 }
 
-function yoneticiSifresiniOku() {
+async function yoneticiSifresiniOku() {
+  const { data } = await supabase
+    .from("ayarlar")
+    .select("veri")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (
+    data?.veri &&
+    typeof data.veri === "object" &&
+    !Array.isArray(data.veri) &&
+    "yoneticiSifresi" in data.veri
+  ) {
+    return String(
+      data.veri.yoneticiSifresi || "1234"
+    );
+  }
+
   try {
     const kayitli = localStorage.getItem("aristo-ayarlar");
 
@@ -115,7 +271,7 @@ function yoneticiSifresiniOku() {
   }
 }
 
-function yoneticiOnayiAl() {
+async function yoneticiOnayiAl() {
   const girilenSifre = window.prompt(
     "🔒 Yönetici şifresini gir:"
   );
@@ -124,7 +280,8 @@ function yoneticiOnayiAl() {
     return false;
   }
 
-  const dogruSifre = yoneticiSifresiniOku();
+  const dogruSifre =
+    await yoneticiSifresiniOku();
 
   if (girilenSifre !== dogruSifre) {
     window.alert("❌ Hatalı yönetici şifresi.");
@@ -141,23 +298,75 @@ export default function Yedekleme() {
   const [mesaj, setMesaj] = useState("");
   const [hata, setHata] = useState("");
   const [geriYukleniyor, setGeriYukleniyor] = useState(false);
+  const [yedekHazirlaniyor, setYedekHazirlaniyor] =
+    useState(false);
+  const [temizleniyor, setTemizleniyor] =
+    useState(false);
+  const [mevcutOzet, setMevcutOzet] = useState({
+    tabloSayisi: YEDEK_TABLOLARI.length,
+    kayitSayisi: 0,
+    boyut: 0,
+    yukleniyor: true,
+  });
 
-  const mevcutOzet = useMemo(() => {
-    if (typeof window === "undefined") {
-      return {
-        kayitSayisi: 0,
-        boyut: 0,
-      };
+  useEffect(() => {
+    let aktif = true;
+
+    async function ozetiYukle() {
+      try {
+        const tablolar =
+          await bulutVerileriniOku();
+
+        if (!aktif) {
+          return;
+        }
+
+        const yerelVeriler =
+          aristoVerileriniOku();
+
+        const kayitSayisi =
+          Object.values(tablolar).reduce(
+            (toplam, kayitlar) =>
+              toplam + kayitlar.length,
+            0
+          );
+
+        const metin = JSON.stringify({
+          tablolar,
+          yerelVeriler,
+        });
+
+        setMevcutOzet({
+          tabloSayisi:
+            YEDEK_TABLOLARI.length,
+          kayitSayisi,
+          boyut: new Blob([metin]).size,
+          yukleniyor: false,
+        });
+      } catch (hata) {
+        console.error(
+          "Yedek özeti hazırlanamadı:",
+          hata
+        );
+
+        if (aktif) {
+          setMevcutOzet((onceki) => ({
+            ...onceki,
+            yukleniyor: false,
+          }));
+          hataGoster(
+            "Bulut verileri okunamadığı için yedek özeti hazırlanamadı."
+          );
+        }
+      }
     }
 
-    const veriler = aristoVerileriniOku();
-    const metin = JSON.stringify(veriler);
+    void ozetiYukle();
 
-    return {
-      kayitSayisi: Object.keys(veriler).length,
-      boyut: new Blob([metin]).size,
+    return () => {
+      aktif = false;
     };
-  }, [mesaj]);
+  }, []);
 
   function bildirimGoster(metin: string) {
     setHata("");
@@ -173,26 +382,46 @@ export default function Yedekleme() {
     setHata(metin);
   }
 
-  function yedekIndir() {
-    try {
-      const veriler = aristoVerileriniOku();
+  async function yedekIndir() {
+    if (yedekHazirlaniyor) {
+      return;
+    }
 
-      if (Object.keys(veriler).length === 0) {
+    try {
+      setYedekHazirlaniyor(true);
+      setHata("");
+
+      const tablolar =
+        await bulutVerileriniOku();
+
+      const yerelVeriler =
+        aristoVerileriniOku();
+
+      const kayitSayisi =
+        Object.values(tablolar).reduce(
+          (toplam, kayitlar) =>
+            toplam + kayitlar.length,
+          0
+        );
+
+      if (kayitSayisi === 0) {
         const devam = window.confirm(
-          "Kaydedilmiş Aristo verisi bulunamadı. Yine de boş yedek indirilsin mi?"
+          "Bulutta kaydedilmiş Aristo verisi bulunamadı. Yine de boş yedek indirilsin mi?"
         );
 
         if (!devam) {
+          setYedekHazirlaniyor(false);
           return;
         }
       }
 
       const yedek: YedekDosyasi = {
         uygulama: "Aristo Yönetim",
-        surum: "3.0",
+        surum: "4.0-supabase",
         olusturmaZamani: new Date().toISOString(),
-        kayitSayisi: Object.keys(veriler).length,
-        veriler,
+        kayitSayisi,
+        tablolar,
+        yerelVeriler,
       };
 
       const blob = new Blob([JSON.stringify(yedek, null, 2)], {
@@ -210,9 +439,26 @@ export default function Yedekleme() {
 
       URL.revokeObjectURL(adres);
 
-      bildirimGoster("Tam yedek bilgisayara indirildi.");
-    } catch {
-      hataGoster("Yedek oluşturulamadı.");
+      setMevcutOzet({
+        tabloSayisi: YEDEK_TABLOLARI.length,
+        kayitSayisi,
+        boyut: blob.size,
+        yukleniyor: false,
+      });
+
+      bildirimGoster(
+        "Supabase tam yedeği bilgisayara indirildi."
+      );
+    } catch (hata) {
+      console.error(
+        "Yedek oluşturulamadı:",
+        hata
+      );
+      hataGoster(
+        "Bulut yedeği oluşturulamadı."
+      );
+    } finally {
+      setYedekHazirlaniyor(false);
     }
   }
 
@@ -245,13 +491,35 @@ export default function Yedekleme() {
         return;
       }
 
-      const hataliKayit = Object.entries(veri.veriler).some(
+      const eksikVeyaHataliTablo =
+        YEDEK_TABLOLARI.some(
+          (tablo) =>
+            !Array.isArray(
+              veri.tablolar[tablo]
+            ) ||
+            veri.tablolar[tablo].some(
+              (kayit) =>
+                !kayit ||
+                typeof kayit !== "object" ||
+                Array.isArray(kayit)
+            )
+        );
+
+      const hataliYerelKayit = Object.entries(
+        veri.yerelVeriler
+      ).some(
         ([anahtar, deger]) =>
-          !anahtar.startsWith(ARISTO_ON_EKI) || typeof deger !== "string"
+          !anahtar.startsWith(ARISTO_ON_EKI) ||
+          typeof deger !== "string"
       );
 
-      if (hataliKayit) {
-        hataGoster("Yedek dosyasındaki bazı kayıtlar geçersiz.");
+      if (
+        eksikVeyaHataliTablo ||
+        hataliYerelKayit
+      ) {
+        hataGoster(
+          "Yedek dosyasındaki bazı bulut veya yerel kayıtlar geçersiz."
+        );
         setYuklenen(null);
         return;
       }
@@ -268,12 +536,12 @@ export default function Yedekleme() {
     }
   }
 
-  function geriYukle() {
+  async function geriYukle() {
     if (!yuklenen) {
       return;
     }
 
-    if (!yoneticiOnayiAl()) {
+    if (!(await yoneticiOnayiAl())) {
       return;
     }
 
@@ -295,10 +563,26 @@ export default function Yedekleme() {
 
     try {
       setGeriYukleniyor(true);
+      setHata("");
+
+      for (const tablo of TABLO_SILME_SIRASI) {
+        await tabloyuTemizle(tablo);
+      }
+
+      for (const tablo of YEDEK_TABLOLARI) {
+        await tabloKayitlariniEkle(
+          tablo,
+          yuklenen.yedek.tablolar[tablo]
+        );
+      }
 
       const silinecekAnahtarlar: string[] = [];
 
-      for (let index = 0; index < localStorage.length; index += 1) {
+      for (
+        let index = 0;
+        index < localStorage.length;
+        index += 1
+      ) {
         const anahtar = localStorage.key(index);
 
         if (anahtar?.startsWith(ARISTO_ON_EKI)) {
@@ -310,26 +594,40 @@ export default function Yedekleme() {
         localStorage.removeItem(anahtar);
       });
 
-      Object.entries(yuklenen.yedek.veriler).forEach(([anahtar, deger]) => {
+      Object.entries(
+        yuklenen.yedek.yerelVeriler
+      ).forEach(([anahtar, deger]) => {
         localStorage.setItem(anahtar, deger);
       });
 
       window.dispatchEvent(new Event("storage"));
 
       setYuklenen(null);
-      bildirimGoster("Yedek başarıyla geri yüklendi. Sayfa yenileniyor.");
+      bildirimGoster(
+        "Supabase yedeği başarıyla geri yüklendi. Sayfa yenileniyor."
+      );
 
       window.setTimeout(() => {
         window.location.reload();
       }, 1200);
-    } catch {
-      hataGoster("Yedek geri yüklenirken hata oluştu.");
+    } catch (hata) {
+      console.error(
+        "Yedek geri yüklenirken hata oluştu:",
+        hata
+      );
+      hataGoster(
+        "Yedek geri yüklenirken hata oluştu. Mevcut yedek dosyasını koru ve işlemi tekrar denemeden önce hata kaydını kontrol et."
+      );
       setGeriYukleniyor(false);
     }
   }
 
-  function demoVerileriniTemizle() {
-    if (!yoneticiOnayiAl()) {
+  async function demoVerileriniTemizle() {
+    if (temizleniyor) {
+      return;
+    }
+
+    if (!(await yoneticiOnayiAl())) {
       return;
     }
 
@@ -350,6 +648,32 @@ export default function Yedekleme() {
     }
 
     try {
+      setTemizleniyor(true);
+      setHata("");
+
+      await tabloyuTemizle("satislar");
+      await tabloyuTemizle("giderler");
+      await tabloyuTemizle("tahsilatlar");
+
+      const { error: kasaHatasi } =
+        await supabase
+          .from("kasa")
+          .upsert(
+            {
+              id: 1,
+              tutar: 0,
+              updated_at:
+                new Date().toISOString(),
+            },
+            { onConflict: "id" }
+          );
+
+      if (kasaHatasi) {
+        throw new Error(
+          `kasa: ${kasaHatasi.message}`
+        );
+      }
+
       const silinecekAnahtarlar = [
         "aristo-satislar",
         "aristo-giderler",
@@ -363,6 +687,11 @@ export default function Yedekleme() {
         localStorage.removeItem(anahtar);
       });
 
+      localStorage.setItem(
+        "aristo-kasa",
+        "0"
+      );
+
       window.dispatchEvent(new Event("storage"));
       bildirimGoster(
         "Demo işlem kayıtları temizlendi. Ürünler, malzemeler, reçeteler ve ayarlar korundu."
@@ -371,8 +700,15 @@ export default function Yedekleme() {
       window.setTimeout(() => {
         window.location.reload();
       }, 900);
-    } catch {
-      hataGoster("Demo verileri temizlenirken hata oluştu.");
+    } catch (hata) {
+      console.error(
+        "Demo verileri temizlenirken hata oluştu:",
+        hata
+      );
+      hataGoster(
+        "Demo verileri buluttan temizlenirken hata oluştu."
+      );
+      setTemizleniyor(false);
     }
   }
 
@@ -460,8 +796,8 @@ export default function Yedekleme() {
               lineHeight: 1.55,
             }}
           >
-            Aristo verilerini bilgisayarına indir veya daha önce alınmış bir
-            yedeği geri yükle.
+            Supabase’deki Aristo verilerini bilgisayarına indir veya daha önce
+            alınmış bir bulut yedeğini geri yükle.
           </p>
         </div>
 
@@ -524,12 +860,25 @@ export default function Yedekleme() {
                 }}
               >
                 Satışlar, giderler, tahsilatlar, ürünler, ayarlar, kasa ve diğer
-                tüm Aristo kayıtları tek JSON dosyasına alınır.
+                tüm Supabase kayıtları tek JSON dosyasına alınır.
               </p>
 
               <div style={satir}>
-                <span>Yerel kayıt grubu</span>
-                <strong>{mevcutOzet.kayitSayisi}</strong>
+                <span>Bulut tablosu</span>
+                <strong>
+                  {mevcutOzet.yukleniyor
+                    ? "..."
+                    : mevcutOzet.tabloSayisi}
+                </strong>
+              </div>
+
+              <div style={satir}>
+                <span>Toplam kayıt</span>
+                <strong>
+                  {mevcutOzet.yukleniyor
+                    ? "..."
+                    : mevcutOzet.kayitSayisi}
+                </strong>
               </div>
 
               <div
@@ -540,11 +889,25 @@ export default function Yedekleme() {
                 }}
               >
                 <span>Tahmini boyut</span>
-                <strong>{byteYaz(mevcutOzet.boyut)}</strong>
+                <strong>
+                  {mevcutOzet.yukleniyor
+                    ? "..."
+                    : byteYaz(mevcutOzet.boyut)}
+                </strong>
               </div>
 
-              <button type="button" onClick={yedekIndir} style={anaButon}>
-                ⬇️ Tam Yedeği İndir
+              <button
+                type="button"
+                onClick={yedekIndir}
+                disabled={yedekHazirlaniyor}
+                style={{
+                  ...anaButon,
+                  opacity: yedekHazirlaniyor ? 0.55 : 1,
+                }}
+              >
+                {yedekHazirlaniyor
+                  ? "Yedek Hazırlanıyor..."
+                  : "⬇️ Tam Yedeği İndir"}
               </button>
             </div>
 
@@ -564,8 +927,8 @@ export default function Yedekleme() {
                   lineHeight: 1.65,
                 }}
               >
-                Daha önce indirdiğin Aristo JSON dosyasını seç. Dosya önce
-                kontrol edilir; doğrudan verilerin üzerine yazılmaz.
+                Daha önce indirdiğin Supabase Aristo JSON dosyasını seç. Dosya
+                önce kontrol edilir; doğrudan verilerin üzerine yazılmaz.
               </p>
 
               <input
@@ -638,14 +1001,27 @@ export default function Yedekleme() {
                 </div>
 
                 <div
+                  style={satir}
+                >
+                  <span>Bulut tablosu</span>
+                  <strong>
+                    {Object.keys(
+                      yuklenen.yedek.tablolar
+                    ).length}
+                  </strong>
+                </div>
+
+                <div
                   style={{
                     ...satir,
                     borderBottom: "none",
                     marginBottom: "14px",
                   }}
                 >
-                  <span>Kayıt grubu</span>
-                  <strong>{Object.keys(yuklenen.yedek.veriler).length}</strong>
+                  <span>Toplam kayıt</span>
+                  <strong>
+                    {yuklenen.yedek.kayitSayisi}
+                  </strong>
                 </div>
 
                 <div
@@ -660,7 +1036,7 @@ export default function Yedekleme() {
                     fontWeight: 700,
                   }}
                 >
-                  Geri yükleme mevcut Aristo kayıtlarının üzerine yazacaktır.
+                  Geri yükleme mevcut Supabase kayıtlarının üzerine yazacaktır.
                 </div>
 
                 <button
@@ -728,12 +1104,16 @@ export default function Yedekleme() {
           <button
             type="button"
             onClick={demoVerileriniTemizle}
+            disabled={temizleniyor}
             style={{
               ...anaButon,
               background: "#b91c1c",
+              opacity: temizleniyor ? 0.55 : 1,
             }}
           >
-            🗑️ Demo İşlem Verilerini Temizle
+            {temizleniyor
+              ? "Demo Verileri Temizleniyor..."
+              : "🗑️ Demo İşlem Verilerini Temizle"}
           </button>
         </div>
 
@@ -759,11 +1139,11 @@ export default function Yedekleme() {
               lineHeight: 1.7,
             }}
           >
-            Her gün iş bitiminde bir yedek indir. Dosyayı Aristo için açacağın
-            Google Drive klasöründe veya işletme e-postasında sakla. Bilgisayar
-            değişirse Vercel sitesini yeni bilgisayarda açıp bu sayfadan son
-            yedeği geri yükleyebilirsin. Yedek geri yükleme işlemi yönetici
-            şifresi olmadan çalışmaz.
+            Veriler artık Supabase’de bulutta tutulur. Ek güvenlik için düzenli
+            olarak tam JSON yedeği indirip Google Drive’da veya işletme
+            e-postasında sakla. Gerektiğinde bu sayfadan seçerek bütün tabloları
+            geri yükleyebilirsin. Geri yükleme işlemi yönetici şifresi olmadan
+            çalışmaz.
           </p>
         </div>
       </div>

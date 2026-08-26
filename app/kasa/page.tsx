@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 function para(tutar: number) {
   return new Intl.NumberFormat("tr-TR", {
@@ -10,24 +11,147 @@ function para(tutar: number) {
   }).format(tutar);
 }
 
+function yerelKasaOnbelleginiGuncelle(
+  tutar: number
+) {
+  localStorage.setItem(
+    "aristo-kasa",
+    String(tutar)
+  );
+
+  window.dispatchEvent(new Event("storage"));
+}
+
 export default function Kasa() {
   const [acilis, setAcilis] = useState("");
-  const [kasadakiPara, setKasadakiPara] = useState(0);
+  const [kasadakiPara, setKasadakiPara] =
+    useState(0);
+  const [kaydediliyor, setKaydediliyor] =
+    useState(false);
 
   useEffect(() => {
-    const veri = localStorage.getItem("aristo-kasa");
+    let aktif = true;
 
-    if (veri) {
-      setKasadakiPara(Number(veri));
+    async function kasayiYukle() {
+      const { data, error } = await supabase
+        .from("kasa")
+        .select("id, tutar")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (!aktif) {
+        return;
+      }
+
+      if (error) {
+        console.error("Kasa okunamadı:", error);
+        window.alert(
+          "Kasa buluttan okunamadı."
+        );
+        return;
+      }
+
+      if (data) {
+        const bulutTutari = Number(
+          data.tutar || 0
+        );
+
+        setKasadakiPara(bulutTutari);
+        yerelKasaOnbelleginiGuncelle(
+          bulutTutari
+        );
+        return;
+      }
+
+      const yerelVeri =
+        localStorage.getItem("aristo-kasa");
+
+      const ilkTutar =
+        yerelVeri === null
+          ? 0
+          : Number(yerelVeri || 0);
+
+      const { error: aktarimHatasi } =
+        await supabase.from("kasa").upsert(
+          {
+            id: 1,
+            tutar: ilkTutar,
+            updated_at:
+              new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+
+      if (!aktif) {
+        return;
+      }
+
+      if (aktarimHatasi) {
+        console.error(
+          "Eski kasa tutarı buluta aktarılamadı:",
+          aktarimHatasi
+        );
+        window.alert(
+          "Eski kasa tutarı buluta aktarılamadı."
+        );
+        return;
+      }
+
+      setKasadakiPara(ilkTutar);
+      yerelKasaOnbelleginiGuncelle(
+        ilkTutar
+      );
     }
+
+    kasayiYukle();
+
+    return () => {
+      aktif = false;
+    };
   }, []);
 
-  function kaydet(yeniTutar: number) {
+  async function kaydet(
+    yeniTutar: number
+  ): Promise<boolean> {
+    if (kaydediliyor) {
+      return false;
+    }
+
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("kasa")
+      .upsert(
+        {
+          id: 1,
+          tutar: yeniTutar,
+          updated_at:
+            new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      );
+
+    if (error) {
+      console.error(
+        "Kasa kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Kasa buluta kaydedilemedi. Mevcut bakiye korunuyor."
+      );
+      setKaydediliyor(false);
+      return false;
+    }
+
     setKasadakiPara(yeniTutar);
-    localStorage.setItem("aristo-kasa", String(yeniTutar));
+    yerelKasaOnbelleginiGuncelle(
+      yeniTutar
+    );
+    setKaydediliyor(false);
+    return true;
   }
 
-  function kasaAc() {
+  async function kasaAc() {
     const tutar = Number(acilis);
 
     if (tutar < 0) {
@@ -35,24 +159,31 @@ export default function Kasa() {
       return;
     }
 
-    kaydet(tutar);
-    alert("Kasa açılışı kaydedildi.");
+    const kaydedildi = await kaydet(tutar);
+
+    if (kaydedildi) {
+      alert("Kasa açılışı kaydedildi.");
+    }
   }
 
-  function paraEkle() {
-    const miktar = Number(prompt("Kasaya eklenecek tutar"));
+  async function paraEkle() {
+    const miktar = Number(
+      prompt("Kasaya eklenecek tutar")
+    );
 
     if (!miktar || miktar <= 0) return;
 
-    kaydet(kasadakiPara + miktar);
+    await kaydet(kasadakiPara + miktar);
   }
 
-  function paraCikar() {
-    const miktar = Number(prompt("Kasadan çıkacak tutar"));
+  async function paraCikar() {
+    const miktar = Number(
+      prompt("Kasadan çıkacak tutar")
+    );
 
     if (!miktar || miktar <= 0) return;
 
-    kaydet(kasadakiPara - miktar);
+    await kaydet(kasadakiPara - miktar);
   }
 
   const kart = {
@@ -99,12 +230,22 @@ export default function Kasa() {
         fontFamily: "Arial,sans-serif",
       }}
     >
-      <div style={{ maxWidth: "760px", margin: "0 auto" }}>
+      <div
+        style={{
+          maxWidth: "760px",
+          margin: "0 auto",
+        }}
+      >
         <Link href="/">← Ana Sayfaya Dön</Link>
 
         <h1>💵 Kasa</h1>
 
-        <div style={{ ...kart, marginBottom: "22px" }}>
+        <div
+          style={{
+            ...kart,
+            marginBottom: "22px",
+          }}
+        >
           <small style={{ color: "#6b7280" }}>
             Mevcut Kasa
           </small>
@@ -126,15 +267,31 @@ export default function Kasa() {
           <input
             type="number"
             value={acilis}
-            onChange={(e) => setAcilis(e.target.value)}
-            style={{ ...input, margin: "8px 0 18px" }}
+            onChange={(e) =>
+              setAcilis(e.target.value)
+            }
+            style={{
+              ...input,
+              margin: "8px 0 18px",
+            }}
           />
 
           <button
             onClick={kasaAc}
-            style={yesil}
+            disabled={kaydediliyor}
+            style={{
+              ...yesil,
+              cursor: kaydediliyor
+                ? "wait"
+                : "pointer",
+              opacity: kaydediliyor
+                ? 0.75
+                : 1,
+            }}
           >
-            💾 Açılışı Kaydet
+            {kaydediliyor
+              ? "KAYDEDİLİYOR..."
+              : "💾 Açılışı Kaydet"}
           </button>
 
           <hr style={{ margin: "28px 0" }} />
@@ -148,14 +305,26 @@ export default function Kasa() {
           >
             <button
               onClick={paraEkle}
-              style={yesil}
+              disabled={kaydediliyor}
+              style={{
+                ...yesil,
+                opacity: kaydediliyor
+                  ? 0.6
+                  : 1,
+              }}
             >
               ➕ Para Ekle
             </button>
 
             <button
               onClick={paraCikar}
-              style={gri}
+              disabled={kaydediliyor}
+              style={{
+                ...gri,
+                opacity: kaydediliyor
+                  ? 0.6
+                  : 1,
+              }}
             >
               ➖ Para Çıkar
             </button>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type CariKaydi = {
   id: number;
@@ -11,6 +12,15 @@ type CariKaydi = {
   aciklama: string;
   tarih: string;
 };
+
+function yerelCariOnbelleginiGuncelle(
+  kayitlar: CariKaydi[]
+) {
+  localStorage.setItem(
+    "aristo-cari",
+    JSON.stringify(kayitlar)
+  );
+}
 
 export default function Cari() {
   const [firma, setFirma] = useState("");
@@ -22,27 +32,130 @@ export default function Cari() {
   const [tipFiltresi, setTipFiltresi] = useState<
     "Tümü" | "Borç" | "Alacak"
   >("Tümü");
+  const [kaydediliyor, setKaydediliyor] =
+    useState(false);
 
   useEffect(() => {
-    try {
-      const veri: CariKaydi[] = JSON.parse(
-        localStorage.getItem("aristo-cari") || "[]"
+    let aktif = true;
+
+    async function cariKayitlariniYukle() {
+      const { data, error } = await supabase
+        .from("cari")
+        .select(
+          "id, firma, tip, tutar, aciklama, tarih"
+        )
+        .order("id", { ascending: false });
+
+      if (!aktif) {
+        return;
+      }
+
+      if (error) {
+        console.error(
+          "Cari kayıtları okunamadı:",
+          error
+        );
+        window.alert(
+          "Cari kayıtları buluttan okunamadı."
+        );
+        return;
+      }
+
+      let bulutKayitlari = data || [];
+
+      if (bulutKayitlari.length === 0) {
+        try {
+          const eskiKayitlar: CariKaydi[] =
+            JSON.parse(
+              localStorage.getItem(
+                "aristo-cari"
+              ) || "[]"
+            );
+
+          if (
+            Array.isArray(eskiKayitlar) &&
+            eskiKayitlar.length > 0
+          ) {
+            const { data: aktarilanlar, error: aktarimHatasi } =
+              await supabase
+                .from("cari")
+                .upsert(
+                  eskiKayitlar.map((kayit) => ({
+                    id: Number(kayit.id),
+                    firma: kayit.firma,
+                    tip: kayit.tip,
+                    tutar: Number(kayit.tutar || 0),
+                    aciklama: kayit.aciklama,
+                    tarih: kayit.tarih,
+                  })),
+                  { onConflict: "id" }
+                )
+                .select(
+                  "id, firma, tip, tutar, aciklama, tarih"
+                );
+
+            if (!aktif) {
+              return;
+            }
+
+            if (aktarimHatasi) {
+              console.error(
+                "Eski cari kayıtları aktarılamadı:",
+                aktarimHatasi
+              );
+              window.alert(
+                "Eski cari kayıtları buluta aktarılamadı."
+              );
+            } else {
+              bulutKayitlari = aktarilanlar || [];
+            }
+          }
+        } catch (hata) {
+          console.error(
+            "Eski cari kayıtları okunamadı:",
+            hata
+          );
+        }
+      }
+
+      const yeniKayitlar: CariKaydi[] =
+        bulutKayitlari.map((kayit) => ({
+          id: Number(kayit.id || 0),
+          firma: String(kayit.firma ?? ""),
+          tip:
+            kayit.tip === "Alacak"
+              ? "Alacak"
+              : "Borç",
+          tutar: Number(kayit.tutar || 0),
+          aciklama: String(kayit.aciklama ?? ""),
+          tarih: String(kayit.tarih ?? ""),
+        }));
+
+      setKayitlar(yeniKayitlar);
+      yerelCariOnbelleginiGuncelle(
+        yeniKayitlar
       );
-
-      setKayitlar(Array.isArray(veri) ? veri : []);
-    } catch {
-      setKayitlar([]);
     }
-  }, []);
 
-  function kayitlariKaydet(yeniListe: CariKaydi[]) {
-    setKayitlar(yeniListe);
+    function odaklaninca() {
+      void cariKayitlariniYukle();
+    }
 
-    localStorage.setItem(
-      "aristo-cari",
-      JSON.stringify(yeniListe)
+    void cariKayitlariniYukle();
+    window.addEventListener(
+      "focus",
+      odaklaninca
     );
-  }
+
+    return () => {
+      aktif = false;
+
+      window.removeEventListener(
+        "focus",
+        odaklaninca
+      );
+    };
+  }, []);
 
   function formuTemizle() {
     setFirma("");
@@ -51,7 +164,7 @@ export default function Cari() {
     setAciklama("");
   }
 
-  function kaydet() {
+  async function kaydet() {
     const cariTutari = Number(tutar);
 
     if (!firma.trim()) {
@@ -73,21 +186,77 @@ export default function Cari() {
       tarih: new Date().toLocaleString("tr-TR"),
     };
 
-    kayitlariKaydet([yeniKayit, ...kayitlar]);
+    if (kaydediliyor) {
+      return;
+    }
+
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("cari")
+      .insert({
+        id: yeniKayit.id,
+        firma: yeniKayit.firma,
+        tip: yeniKayit.tip,
+        tutar: yeniKayit.tutar,
+        aciklama: yeniKayit.aciklama,
+        tarih: yeniKayit.tarih,
+      });
+
+    if (error) {
+      console.error(
+        "Cari kayıt kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Cari kayıt buluta kaydedilemedi."
+      );
+      setKaydediliyor(false);
+      return;
+    }
+
+    const yeniListe = [yeniKayit, ...kayitlar];
+
+    setKayitlar(yeniListe);
+    yerelCariOnbelleginiGuncelle(
+      yeniListe
+    );
     formuTemizle();
+    setKaydediliyor(false);
 
     alert("Cari kayıt eklendi.");
   }
 
-  function sil(id: number) {
+  async function sil(id: number) {
     const onay = window.confirm(
       "Bu cari hareketi silinsin mi?"
     );
 
     if (!onay) return;
 
-    kayitlariKaydet(
-      kayitlar.filter((kayit) => kayit.id !== id)
+    const { error } = await supabase
+      .from("cari")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error(
+        "Cari kayıt silinemedi:",
+        error
+      );
+      window.alert(
+        "Cari kayıt buluttan silinemedi."
+      );
+      return;
+    }
+
+    const yeniListe = kayitlar.filter(
+      (kayit) => kayit.id !== id
+    );
+
+    setKayitlar(yeniListe);
+    yerelCariOnbelleginiGuncelle(
+      yeniListe
     );
   }
 
@@ -410,7 +579,11 @@ export default function Cari() {
 
             <button
               onClick={kaydet}
-              style={yesilButon}
+              disabled={kaydediliyor}
+              style={{
+                ...yesilButon,
+                opacity: kaydediliyor ? 0.65 : 1,
+              }}
             >
               💾 Kaydet
             </button>

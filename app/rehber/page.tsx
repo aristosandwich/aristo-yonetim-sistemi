@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type RehberKaydi = {
   id: number;
@@ -10,6 +11,15 @@ type RehberKaydi = {
   telefon: string;
   not: string;
 };
+
+function yerelRehberOnbelleginiGuncelle(
+  kayitlar: RehberKaydi[]
+) {
+  localStorage.setItem(
+    "aristo-rehber",
+    JSON.stringify(kayitlar)
+  );
+}
 
 export default function Rehber() {
   const [ad, setAd] = useState("");
@@ -22,27 +32,132 @@ export default function Rehber() {
   const [turFiltresi, setTurFiltresi] = useState<
     "Tümü" | RehberKaydi["tur"]
   >("Tümü");
+  const [kaydediliyor, setKaydediliyor] =
+    useState(false);
 
   useEffect(() => {
-    try {
-      const veri: RehberKaydi[] = JSON.parse(
-        localStorage.getItem("aristo-rehber") || "[]"
+    let aktif = true;
+
+    async function rehberKayitlariniYukle() {
+      const { data, error } = await supabase
+        .from("rehber")
+        .select("id, ad, tur, telefon, not")
+        .order("id", { ascending: false });
+
+      if (!aktif) {
+        return;
+      }
+
+      if (error) {
+        console.error(
+          "Rehber kayıtları okunamadı:",
+          error
+        );
+        window.alert(
+          "Rehber kayıtları buluttan okunamadı."
+        );
+        return;
+      }
+
+      let bulutKayitlari = data || [];
+
+      if (bulutKayitlari.length === 0) {
+        try {
+          const eskiKayitlar: RehberKaydi[] =
+            JSON.parse(
+              localStorage.getItem(
+                "aristo-rehber"
+              ) || "[]"
+            );
+
+          if (
+            Array.isArray(eskiKayitlar) &&
+            eskiKayitlar.length > 0
+          ) {
+            const { data: aktarilanlar, error: aktarimHatasi } =
+              await supabase
+                .from("rehber")
+                .upsert(
+                  eskiKayitlar.map((kayit) => ({
+                    id: Number(kayit.id),
+                    ad: kayit.ad,
+                    tur: kayit.tur,
+                    telefon: kayit.telefon,
+                    not: kayit.not,
+                  })),
+                  { onConflict: "id" }
+                )
+                .select("id, ad, tur, telefon, not");
+
+            if (!aktif) {
+              return;
+            }
+
+            if (aktarimHatasi) {
+              console.error(
+                "Eski rehber kayıtları aktarılamadı:",
+                aktarimHatasi
+              );
+              window.alert(
+                "Eski rehber kayıtları buluta aktarılamadı."
+              );
+            } else {
+              bulutKayitlari = aktarilanlar || [];
+            }
+          }
+        } catch (hata) {
+          console.error(
+            "Eski rehber kayıtları okunamadı:",
+            hata
+          );
+        }
+      }
+
+      const yeniKayitlar: RehberKaydi[] =
+        bulutKayitlari.map((kayit) => {
+          const kayitTuru = [
+            "Tedarikçi",
+            "Müşteri",
+            "Personel",
+            "Diğer",
+          ].includes(String(kayit.tur))
+            ? (String(kayit.tur) as RehberKaydi["tur"])
+            : "Diğer";
+
+          return {
+            id: Number(kayit.id || 0),
+            ad: String(kayit.ad ?? ""),
+            tur: kayitTuru,
+            telefon: String(kayit.telefon ?? ""),
+            not: String(kayit.not ?? ""),
+          };
+        });
+
+      setKayitlar(yeniKayitlar);
+      yerelRehberOnbelleginiGuncelle(
+        yeniKayitlar
       );
-
-      setKayitlar(Array.isArray(veri) ? veri : []);
-    } catch {
-      setKayitlar([]);
     }
-  }, []);
 
-  function kayitlariKaydet(yeniListe: RehberKaydi[]) {
-    setKayitlar(yeniListe);
+    function odaklaninca() {
+      void rehberKayitlariniYukle();
+    }
 
-    localStorage.setItem(
-      "aristo-rehber",
-      JSON.stringify(yeniListe)
+    void rehberKayitlariniYukle();
+    window.addEventListener(
+      "focus",
+      odaklaninca
     );
-  }
+
+    return () => {
+      aktif = false;
+
+      window.removeEventListener(
+        "focus",
+        odaklaninca
+      );
+    };
+  }, []);
 
   function formuTemizle() {
     setAd("");
@@ -51,7 +166,7 @@ export default function Rehber() {
     setNot("");
   }
 
-  function kaydet() {
+  async function kaydet() {
     if (!ad.trim()) {
       alert("Ad veya firma gir.");
       return;
@@ -65,21 +180,76 @@ export default function Rehber() {
       not: not.trim(),
     };
 
-    kayitlariKaydet([yeniKayit, ...kayitlar]);
+    if (kaydediliyor) {
+      return;
+    }
+
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("rehber")
+      .insert({
+        id: yeniKayit.id,
+        ad: yeniKayit.ad,
+        tur: yeniKayit.tur,
+        telefon: yeniKayit.telefon,
+        not: yeniKayit.not,
+      });
+
+    if (error) {
+      console.error(
+        "Rehber kaydı kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Rehber kaydı buluta kaydedilemedi."
+      );
+      setKaydediliyor(false);
+      return;
+    }
+
+    const yeniListe = [yeniKayit, ...kayitlar];
+
+    setKayitlar(yeniListe);
+    yerelRehberOnbelleginiGuncelle(
+      yeniListe
+    );
     formuTemizle();
+    setKaydediliyor(false);
 
     alert("Rehber kaydı eklendi.");
   }
 
-  function sil(id: number) {
+  async function sil(id: number) {
     const onay = window.confirm(
       "Bu rehber kaydı silinsin mi?"
     );
 
     if (!onay) return;
 
-    kayitlariKaydet(
-      kayitlar.filter((kayit) => kayit.id !== id)
+    const { error } = await supabase
+      .from("rehber")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error(
+        "Rehber kaydı silinemedi:",
+        error
+      );
+      window.alert(
+        "Rehber kaydı buluttan silinemedi."
+      );
+      return;
+    }
+
+    const yeniListe = kayitlar.filter(
+      (kayit) => kayit.id !== id
+    );
+
+    setKayitlar(yeniListe);
+    yerelRehberOnbelleginiGuncelle(
+      yeniListe
     );
   }
 
@@ -328,7 +498,11 @@ export default function Rehber() {
 
             <button
               onClick={kaydet}
-              style={yesilButon}
+              disabled={kaydediliyor}
+              style={{
+                ...yesilButon,
+                opacity: kaydediliyor ? 0.65 : 1,
+              }}
             >
               💾 Kaydet
             </button>

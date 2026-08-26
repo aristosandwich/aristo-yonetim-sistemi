@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type TakvimKaydi = {
   id: number;
@@ -32,20 +33,131 @@ export default function Takvim() {
   const [durum, setDurum] = useState<
     "Tümü" | "Bekleyen" | "Tamamlanan"
   >("Tümü");
+  const [kaydediliyor, setKaydediliyor] =
+    useState(false);
 
   useEffect(() => {
-    try {
-      const veri: TakvimKaydi[] = JSON.parse(
-        localStorage.getItem("aristo-takvim") || "[]"
-      );
+    let aktif = true;
 
-      setKayitlar(Array.isArray(veri) ? veri : []);
-    } catch {
-      setKayitlar([]);
+    async function takvimKayitlariniYukle() {
+      const { data, error } = await supabase
+        .from("takvim")
+        .select(
+          "id, baslik, tarih, tur, aciklama, tamamlandi"
+        )
+        .order("tarih", { ascending: true })
+        .order("id", { ascending: true });
+
+      if (!aktif) {
+        return;
+      }
+
+      if (error) {
+        console.error(
+          "Takvim kayıtları okunamadı:",
+          error
+        );
+        window.alert(
+          "Takvim kayıtları buluttan okunamadı."
+        );
+        return;
+      }
+
+      let bulutKayitlari = data || [];
+
+      if (bulutKayitlari.length === 0) {
+        try {
+          const eskiKayitlar: TakvimKaydi[] =
+            JSON.parse(
+              localStorage.getItem(
+                "aristo-takvim"
+              ) || "[]"
+            );
+
+          if (
+            Array.isArray(eskiKayitlar) &&
+            eskiKayitlar.length > 0
+          ) {
+            const { data: aktarilanlar, error: aktarimHatasi } =
+              await supabase
+                .from("takvim")
+                .upsert(
+                  eskiKayitlar.map((kayit) => ({
+                    id: Number(kayit.id),
+                    baslik: kayit.baslik,
+                    tarih: kayit.tarih,
+                    tur: kayit.tur,
+                    aciklama: kayit.aciklama,
+                    tamamlandi: Boolean(
+                      kayit.tamamlandi
+                    ),
+                  })),
+                  { onConflict: "id" }
+                )
+                .select(
+                  "id, baslik, tarih, tur, aciklama, tamamlandi"
+                );
+
+            if (!aktif) {
+              return;
+            }
+
+            if (aktarimHatasi) {
+              console.error(
+                "Eski takvim kayıtları aktarılamadı:",
+                aktarimHatasi
+              );
+              window.alert(
+                "Eski takvim kayıtları buluta aktarılamadı."
+              );
+            } else {
+              bulutKayitlari = aktarilanlar || [];
+            }
+          }
+        } catch (hata) {
+          console.error(
+            "Eski takvim kayıtları okunamadı:",
+            hata
+          );
+        }
+      }
+
+      const yeniKayitlar: TakvimKaydi[] =
+        bulutKayitlari.map((kayit) => ({
+          id: Number(kayit.id || 0),
+          baslik: String(kayit.baslik ?? ""),
+          tarih: String(kayit.tarih ?? ""),
+          tur: String(kayit.tur ?? "Diğer"),
+          aciklama: String(kayit.aciklama ?? ""),
+          tamamlandi: Boolean(
+            kayit.tamamlandi
+          ),
+        }));
+
+      kayitlariGuncelle(yeniKayitlar);
     }
+
+    function odaklaninca() {
+      void takvimKayitlariniYukle();
+    }
+
+    void takvimKayitlariniYukle();
+    window.addEventListener(
+      "focus",
+      odaklaninca
+    );
+
+    return () => {
+      aktif = false;
+
+      window.removeEventListener(
+        "focus",
+        odaklaninca
+      );
+    };
   }, []);
 
-  function kayitlariKaydet(yeniListe: TakvimKaydi[]) {
+  function kayitlariGuncelle(yeniListe: TakvimKaydi[]) {
     const siraliListe = [...yeniListe].sort((a, b) =>
       a.tarih.localeCompare(b.tarih)
     );
@@ -65,7 +177,7 @@ export default function Takvim() {
     setAciklama("");
   }
 
-  function kaydet() {
+  async function kaydet() {
     if (!baslik.trim() || !tarih) {
       alert("Başlık ve tarih gir.");
       return;
@@ -80,32 +192,112 @@ export default function Takvim() {
       tamamlandi: false,
     };
 
-    kayitlariKaydet([...kayitlar, yeniKayit]);
+    if (kaydediliyor) {
+      return;
+    }
+
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("takvim")
+      .insert({
+        id: yeniKayit.id,
+        baslik: yeniKayit.baslik,
+        tarih: yeniKayit.tarih,
+        tur: yeniKayit.tur,
+        aciklama: yeniKayit.aciklama,
+        tamamlandi: yeniKayit.tamamlandi,
+      });
+
+    if (error) {
+      console.error(
+        "Takvim kaydı kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Takvim kaydı buluta kaydedilemedi."
+      );
+      setKaydediliyor(false);
+      return;
+    }
+
+    kayitlariGuncelle([
+      ...kayitlar,
+      yeniKayit,
+    ]);
     formuTemizle();
+    setKaydediliyor(false);
 
     alert("Takvim kaydı eklendi.");
   }
 
-  function tamamlandiDegistir(id: number) {
+  async function tamamlandiDegistir(id: number) {
+    const bulunanKayit = kayitlar.find(
+      (kayit) => kayit.id === id
+    );
+
+    if (!bulunanKayit) {
+      return;
+    }
+
+    const yeniTamamlandi =
+      !bulunanKayit.tamamlandi;
+
+    const { error } = await supabase
+      .from("takvim")
+      .update({
+        tamamlandi: yeniTamamlandi,
+      })
+      .eq("id", id);
+
+    if (error) {
+      console.error(
+        "Takvim durumu güncellenemedi:",
+        error
+      );
+      window.alert(
+        "Takvim kaydı bulutta güncellenemedi."
+      );
+      return;
+    }
+
     const yeniListe = kayitlar.map((kayit) =>
       kayit.id === id
         ? {
             ...kayit,
-            tamamlandi: !kayit.tamamlandi,
+            tamamlandi: yeniTamamlandi,
           }
         : kayit
     );
 
-    kayitlariKaydet(yeniListe);
+    kayitlariGuncelle(yeniListe);
   }
 
-  function sil(id: number) {
+  async function sil(id: number) {
     const onay = window.confirm("Bu kayıt silinsin mi?");
 
     if (!onay) return;
 
-    kayitlariKaydet(
-      kayitlar.filter((kayit) => kayit.id !== id)
+    const { error } = await supabase
+      .from("takvim")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error(
+        "Takvim kaydı silinemedi:",
+        error
+      );
+      window.alert(
+        "Takvim kaydı buluttan silinemedi."
+      );
+      return;
+    }
+
+    kayitlariGuncelle(
+      kayitlar.filter(
+        (kayit) => kayit.id !== id
+      )
     );
   }
 
@@ -396,7 +588,14 @@ export default function Takvim() {
               }}
             />
 
-            <button onClick={kaydet} style={yesilButon}>
+            <button
+              onClick={kaydet}
+              disabled={kaydediliyor}
+              style={{
+                ...yesilButon,
+                opacity: kaydediliyor ? 0.65 : 1,
+              }}
+            >
               💾 Kaydet
             </button>
           </div>

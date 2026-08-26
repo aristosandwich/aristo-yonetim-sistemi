@@ -4,19 +4,149 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { supabase } from "../lib/supabase";
 
-const TAM_YAZI = "Sandwich & Salad Bar";
+type HeaderAyarlari = {
+  isletmeAdi: string;
+  altBaslik: string;
+  logoYolu: string;
+};
+
+const VARSAYILAN_AYARLAR: HeaderAyarlari = {
+  isletmeAdi: "ARISTO",
+  altBaslik: "Sandwich & Salad Bar",
+  logoYolu: "/aristo-logo.png",
+};
+
+function headerAyarlariniAyikla(
+  veri: Record<string, unknown>
+): HeaderAyarlari {
+  return {
+    isletmeAdi:
+      String(veri.isletmeAdi ?? "").trim() ||
+      VARSAYILAN_AYARLAR.isletmeAdi,
+    altBaslik:
+      String(veri.altBaslik ?? "").trim() ||
+      VARSAYILAN_AYARLAR.altBaslik,
+    logoYolu:
+      String(veri.logoYolu ?? "").trim() ||
+      VARSAYILAN_AYARLAR.logoYolu,
+  };
+}
 
 export default function Header() {
   const pathname = usePathname();
 
+  const [headerAyarlari, setHeaderAyarlari] =
+    useState<HeaderAyarlari>(VARSAYILAN_AYARLAR);
   const [yazi, setYazi] = useState("");
   const [siliniyor, setSiliniyor] = useState(false);
 
   useEffect(() => {
+    let aktif = true;
+
+    function yerelAyarlariUygula() {
+      try {
+        const kayitli = localStorage.getItem("aristo-ayarlar");
+
+        if (!kayitli) return;
+
+        const veri = JSON.parse(kayitli);
+
+        if (
+          veri &&
+          typeof veri === "object" &&
+          !Array.isArray(veri)
+        ) {
+          setHeaderAyarlari(
+            headerAyarlariniAyikla(
+              veri as Record<string, unknown>
+            )
+          );
+        }
+      } catch (hata) {
+        console.error("Yerel başlık ayarları okunamadı:", hata);
+      }
+    }
+
+    async function ayarlariYukle() {
+      yerelAyarlariUygula();
+
+      const { data, error } = await supabase
+        .from("ayarlar")
+        .select("veri")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (!aktif) return;
+
+      if (error) {
+        console.error("Başlık ayarları okunamadı:", error);
+        return;
+      }
+
+      if (
+        !data?.veri ||
+        typeof data.veri !== "object" ||
+        Array.isArray(data.veri)
+      ) {
+        return;
+      }
+
+      const bulutAyarlari =
+        data.veri as Record<string, unknown>;
+
+      setHeaderAyarlari(
+        headerAyarlariniAyikla(bulutAyarlari)
+      );
+
+      try {
+        const kayitli = localStorage.getItem("aristo-ayarlar");
+        const yerelAyarlar = kayitli
+          ? JSON.parse(kayitli)
+          : {};
+
+        localStorage.setItem(
+          "aristo-ayarlar",
+          JSON.stringify({
+            ...(yerelAyarlar &&
+            typeof yerelAyarlar === "object" &&
+            !Array.isArray(yerelAyarlar)
+              ? yerelAyarlar
+              : {}),
+            ...bulutAyarlari,
+          })
+        );
+      } catch (hata) {
+        console.error("Başlık ayarları önbelleğe alınamadı:", hata);
+      }
+    }
+
+    function yenidenYukle() {
+      void ayarlariYukle();
+    }
+
+    void ayarlariYukle();
+    window.addEventListener("storage", yenidenYukle);
+    window.addEventListener("focus", yenidenYukle);
+
+    return () => {
+      aktif = false;
+      window.removeEventListener("storage", yenidenYukle);
+      window.removeEventListener("focus", yenidenYukle);
+    };
+  }, []);
+
+  useEffect(() => {
+    setYazi("");
+    setSiliniyor(false);
+  }, [headerAyarlari.altBaslik]);
+
+  useEffect(() => {
+    const tamYazi = headerAyarlari.altBaslik;
     let beklemeSuresi = siliniyor ? 14 : 90;
 
-    if (!siliniyor && yazi === TAM_YAZI) {
+    if (!siliniyor && yazi === tamYazi) {
       beklemeSuresi = 1800;
     }
 
@@ -26,16 +156,14 @@ export default function Header() {
 
     const zamanlayici = window.setTimeout(() => {
       if (!siliniyor) {
-        if (yazi.length < TAM_YAZI.length) {
-          setYazi(
-            TAM_YAZI.slice(0, yazi.length + 1)
-          );
+        if (yazi.length < tamYazi.length) {
+          setYazi(tamYazi.slice(0, yazi.length + 1));
         } else {
           setSiliniyor(true);
         }
       } else if (yazi.length > 0) {
         setYazi(
-          TAM_YAZI.slice(
+          tamYazi.slice(
             0,
             Math.max(yazi.length - 4, 0)
           )
@@ -48,7 +176,7 @@ export default function Header() {
     return () => {
       window.clearTimeout(zamanlayici);
     };
-  }, [yazi, siliniyor]);
+  }, [yazi, siliniyor, headerAyarlari.altBaslik]);
 
   return (
     <header
@@ -65,8 +193,7 @@ export default function Header() {
         gap: "22px",
         flexWrap: "wrap",
         border: "1px solid #e7e7e7",
-        boxShadow:
-          "0 11px 30px rgba(0,0,0,.085)",
+        boxShadow: "0 11px 30px rgba(0,0,0,.085)",
       }}
     >
       <style jsx>{`
@@ -83,8 +210,7 @@ export default function Header() {
         }
 
         .aristo-imlec {
-          animation: imlecYanipSonme 0.8s
-            steps(1) infinite;
+          animation: imlecYanipSonme 0.8s steps(1) infinite;
         }
 
         .aristo-ana-sayfa {
@@ -138,25 +264,35 @@ export default function Header() {
         }}
       />
 
-      <Image
-        className="aristo-logo"
-        src="/aristo-logo.png"
-        alt="Aristo"
-        width={144}
-        height={144}
-        priority
+      <Link
+        href="/"
+        aria-label="Ana sayfaya dön"
         style={{
-          width: "144px",
-          height: "144px",
-          objectFit: "contain",
+          display: "inline-flex",
           borderRadius: "50%",
-          background: "#ffffff",
-          padding: "2px",
-          boxShadow:
-            "0 8px 19px rgba(0,0,0,.12)",
           flexShrink: 0,
+          textDecoration: "none",
         }}
-      />
+      >
+        <Image
+          className="aristo-logo"
+          src={headerAyarlari.logoYolu}
+          alt={headerAyarlari.isletmeAdi}
+          width={144}
+          height={144}
+          priority
+          style={{
+            width: "144px",
+            height: "144px",
+            objectFit: "contain",
+            borderRadius: "50%",
+            background: "#ffffff",
+            padding: "2px",
+            boxShadow: "0 8px 19px rgba(0,0,0,.12)",
+            flexShrink: 0,
+          }}
+        />
+      </Link>
 
       <div
         className="aristo-marka-alani"
@@ -172,14 +308,13 @@ export default function Header() {
           style={{
             margin: 0,
             color: "#111111",
-            fontSize:
-              "clamp(40px, 4.8vw, 54px)",
+            fontSize: "clamp(40px, 4.8vw, 54px)",
             fontWeight: 900,
             letterSpacing: "-1.4px",
             lineHeight: 1,
           }}
         >
-          ARISTO
+          {headerAyarlari.isletmeAdi}
         </h1>
 
         <div
@@ -189,8 +324,7 @@ export default function Header() {
             marginTop: "10px",
             minHeight: "36px",
             color: "#111111",
-            fontSize:
-              "clamp(22px, 2.7vw, 29px)",
+            fontSize: "clamp(22px, 2.7vw, 29px)",
             fontWeight: 800,
             letterSpacing: "-0.15px",
             whiteSpace: "nowrap",
@@ -229,8 +363,7 @@ export default function Header() {
             textDecoration: "none",
             fontWeight: 800,
             border: "1px solid #dbae17",
-            boxShadow:
-              "0 6px 16px rgba(246,201,69,.28)",
+            boxShadow: "0 6px 16px rgba(246,201,69,.28)",
             whiteSpace: "nowrap",
           }}
         >

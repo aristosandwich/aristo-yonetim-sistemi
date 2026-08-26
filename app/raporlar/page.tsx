@@ -7,6 +7,7 @@ import {
   type CSSProperties,
 } from "react";
 import Header from "../ui/Header";
+import { supabase } from "../lib/supabase";
 
 type TarihliKayit = {
   id?: number | string;
@@ -33,20 +34,6 @@ type KanalAdi =
   | "Yemeksepeti"
   | "Trendyol"
   | "Uber Eats";
-
-function depodanOku<T>(anahtar: string): T[] {
-  try {
-    const veri = JSON.parse(
-      localStorage.getItem(anahtar) || "[]"
-    );
-
-    return Array.isArray(veri)
-      ? (veri as T[])
-      : [];
-  } catch {
-    return [];
-  }
-}
 
 function para(tutar: number) {
   return new Intl.NumberFormat("tr-TR", {
@@ -196,47 +183,135 @@ export default function Raporlar() {
     useState<TahsilatKaydi[]>([]);
 
   useEffect(() => {
-    function verileriYukle() {
-      setSatislar(
-        depodanOku<SatisKaydi>(
-          "aristo-satislar"
-        )
-      );
+    let aktif = true;
 
-      setGiderler(
-        depodanOku<GiderKaydi>(
-          "aristo-giderler"
-        )
-      );
+    async function verileriYukle() {
+      const [
+        satisSonucu,
+        giderSonucu,
+        tahsilatSonucu,
+      ] = await Promise.all([
+        supabase
+          .from("satislar")
+          .select(
+            "id, islem_id, tarih, platform, toplam"
+          )
+          .order("islem_id", {
+            ascending: false,
+          }),
+        supabase
+          .from("giderler")
+          .select("id, tarih, tutar")
+          .order("tarih", {
+            ascending: false,
+          }),
+        supabase
+          .from("tahsilatlar")
+          .select(
+            "id, tarih, platform, tutar"
+          )
+          .order("tarih", {
+            ascending: false,
+          }),
+      ]);
 
-      setTahsilatlar(
-        depodanOku<TahsilatKaydi>(
-          "aristo-tahsilatlar"
-        )
-      );
+      if (!aktif) {
+        return;
+      }
+
+      const hatalar = [
+        satisSonucu.error,
+        giderSonucu.error,
+        tahsilatSonucu.error,
+      ].filter(Boolean);
+
+      if (hatalar.length > 0) {
+        console.error(
+          "Rapor verileri okunamadı:",
+          hatalar
+        );
+        window.alert(
+          "Rapor verileri buluttan okunamadı."
+        );
+      }
+
+      if (!satisSonucu.error) {
+        setSatislar(
+          (satisSonucu.data || []).map(
+            (kayit) => ({
+              id: Number(kayit.id || 0),
+              islemId: Number(
+                kayit.islem_id ||
+                  kayit.id ||
+                  0
+              ),
+              tarih: String(
+                kayit.tarih ?? ""
+              ),
+              platform: String(
+                kayit.platform ?? ""
+              ),
+              toplam: Number(
+                kayit.toplam || 0
+              ),
+            })
+          )
+        );
+      }
+
+      if (!giderSonucu.error) {
+        setGiderler(
+          (giderSonucu.data || []).map(
+            (kayit) => ({
+              id: Number(kayit.id || 0),
+              tarih: String(
+                kayit.tarih ?? ""
+              ),
+              tutar: Number(
+                kayit.tutar || 0
+              ),
+            })
+          )
+        );
+      }
+
+      if (!tahsilatSonucu.error) {
+        setTahsilatlar(
+          (tahsilatSonucu.data || []).map(
+            (kayit) => ({
+              id: Number(kayit.id || 0),
+              tarih: String(
+                kayit.tarih ?? ""
+              ),
+              platform: String(
+                kayit.platform ?? ""
+              ),
+              tutar: Number(
+                kayit.tutar || 0
+              ),
+            })
+          )
+        );
+      }
     }
 
-    verileriYukle();
+    function odaklaninca() {
+      void verileriYukle();
+    }
+
+    void verileriYukle();
 
     window.addEventListener(
       "focus",
-      verileriYukle
-    );
-
-    window.addEventListener(
-      "storage",
-      verileriYukle
+      odaklaninca
     );
 
     return () => {
-      window.removeEventListener(
-        "focus",
-        verileriYukle
-      );
+      aktif = false;
 
       window.removeEventListener(
-        "storage",
-        verileriYukle
+        "focus",
+        odaklaninca
       );
     };
   }, []);

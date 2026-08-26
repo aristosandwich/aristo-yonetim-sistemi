@@ -7,6 +7,7 @@ import {
   type CSSProperties,
 } from "react";
 import Header from "../ui/Header";
+import { supabase } from "../lib/supabase";
 
 type AyarlarVerisi = {
   isletmeAdi: string;
@@ -68,40 +69,131 @@ export default function Ayarlar() {
   const [sifreGoster, setSifreGoster] =
     useState(false);
 
-  useEffect(() => {
-    try {
-      const kayitliVeri =
-        localStorage.getItem(
-          "aristo-ayarlar"
-        );
+  const [kaydediliyor, setKaydediliyor] =
+    useState(false);
 
-      if (!kayitliVeri) {
+  useEffect(() => {
+    let aktif = true;
+
+    async function ayarlariYukle() {
+      const { data, error } = await supabase
+        .from("ayarlar")
+        .select("id, veri")
+        .eq("id", 1)
+        .maybeSingle();
+
+      if (!aktif) {
         return;
       }
 
-      const kayitliAyarlar =
-        JSON.parse(kayitliVeri);
+      if (error) {
+        console.error(
+          "Ayarlar okunamadı:",
+          error
+        );
+        window.alert(
+          "Ayarlar buluttan okunamadı."
+        );
+        return;
+      }
 
-      setAyarlar({
+      let yuklenecekAyarlar:
+        Partial<AyarlarVerisi> = {};
+
+      if (
+        data?.veri &&
+        typeof data.veri === "object" &&
+        !Array.isArray(data.veri)
+      ) {
+        yuklenecekAyarlar =
+          data.veri as Partial<AyarlarVerisi>;
+      } else {
+        try {
+          const kayitliVeri =
+            localStorage.getItem(
+              "aristo-ayarlar"
+            );
+
+          if (kayitliVeri) {
+            const yerelAyarlar =
+              JSON.parse(kayitliVeri);
+
+            if (
+              yerelAyarlar &&
+              typeof yerelAyarlar === "object" &&
+              !Array.isArray(yerelAyarlar)
+            ) {
+              yuklenecekAyarlar =
+                yerelAyarlar;
+            }
+          }
+        } catch (hata) {
+          console.error(
+            "Eski ayarlar okunamadı:",
+            hata
+          );
+        }
+      }
+
+      const birlestirilmisAyarlar: AyarlarVerisi = {
         ...varsayilanAyarlar,
-        ...kayitliAyarlar,
+        ...yuklenecekAyarlar,
         kdvOrani: Number(
-          kayitliAyarlar.kdvOrani ??
+          yuklenecekAyarlar.kdvOrani ??
             varsayilanAyarlar.kdvOrani
         ),
-      });
+      };
+
+      if (!data) {
+        const { error: aktarimHatasi } =
+          await supabase
+            .from("ayarlar")
+            .upsert(
+              {
+                id: 1,
+                veri: birlestirilmisAyarlar,
+                updated_at:
+                  new Date().toISOString(),
+              },
+              { onConflict: "id" }
+            );
+
+        if (!aktif) {
+          return;
+        }
+
+        if (aktarimHatasi) {
+          console.error(
+            "Eski ayarlar aktarılamadı:",
+            aktarimHatasi
+          );
+          window.alert(
+            "Eski ayarlar buluta aktarılamadı."
+          );
+        }
+      }
+
+      setAyarlar(
+        birlestirilmisAyarlar
+      );
 
       setSifreTekrar(
-        String(
-          kayitliAyarlar.yoneticiSifresi ||
-            varsayilanAyarlar.yoneticiSifresi
+        birlestirilmisAyarlar.yoneticiSifresi
+      );
+
+      localStorage.setItem(
+        "aristo-ayarlar",
+        JSON.stringify(
+          birlestirilmisAyarlar
         )
       );
-    } catch {
-      setAyarlar(
-        varsayilanAyarlar
-      );
     }
+
+    void ayarlariYukle();
+
+    return () => {
+      aktif = false;
+    };
   }, []);
 
   function alanDegistir<
@@ -116,7 +208,7 @@ export default function Ayarlar() {
     }));
   }
 
-  function kaydet() {
+  async function kaydet() {
     if (
       !ayarlar.isletmeAdi.trim()
     ) {
@@ -136,6 +228,36 @@ export default function Ayarlar() {
       return;
     }
 
+    if (kaydediliyor) {
+      return;
+    }
+
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("ayarlar")
+      .upsert(
+        {
+          id: 1,
+          veri: ayarlar,
+          updated_at:
+            new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      );
+
+    if (error) {
+      console.error(
+        "Ayarlar kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Ayarlar buluta kaydedilemedi."
+      );
+      setKaydediliyor(false);
+      return;
+    }
+
     localStorage.setItem(
       "aristo-ayarlar",
       JSON.stringify(ayarlar)
@@ -146,19 +268,50 @@ export default function Ayarlar() {
     );
 
     setKaydedildi(true);
+    setKaydediliyor(false);
 
     window.setTimeout(() => {
       setKaydedildi(false);
     }, 2500);
   }
 
-  function varsayilanaDon() {
+  async function varsayilanaDon() {
     const onay =
       window.confirm(
         "Ayarlar varsayılan değerlere döndürülsün mü?"
       );
 
     if (!onay) {
+      return;
+    }
+
+    if (kaydediliyor) {
+      return;
+    }
+
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("ayarlar")
+      .upsert(
+        {
+          id: 1,
+          veri: varsayilanAyarlar,
+          updated_at:
+            new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      );
+
+    if (error) {
+      console.error(
+        "Varsayılan ayarlar kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Ayarlar bulutta sıfırlanamadı."
+      );
+      setKaydediliyor(false);
       return;
     }
 
@@ -180,6 +333,8 @@ export default function Ayarlar() {
     window.dispatchEvent(
       new Event("storage")
     );
+
+    setKaydediliyor(false);
   }
 
   const kartStili: CSSProperties = {
@@ -1159,7 +1314,11 @@ export default function Ayarlar() {
               <button
                 type="button"
                 onClick={kaydet}
-                style={yesilButon}
+                disabled={kaydediliyor}
+                style={{
+                  ...yesilButon,
+                  opacity: kaydediliyor ? 0.65 : 1,
+                }}
               >
                 💾 Ayarları Kaydet
               </button>
@@ -1169,7 +1328,11 @@ export default function Ayarlar() {
                 onClick={
                   varsayilanaDon
                 }
-                style={griButon}
+                disabled={kaydediliyor}
+                style={{
+                  ...griButon,
+                  opacity: kaydediliyor ? 0.65 : 1,
+                }}
               >
                 ↩️ Varsayılan Ayarlara
                 Dön

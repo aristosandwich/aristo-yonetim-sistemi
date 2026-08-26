@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type NotKaydi = {
   id: number;
@@ -9,55 +10,205 @@ type NotKaydi = {
   metin: string;
 };
 
+function yerelNotOnbelleginiGuncelle(
+  notlar: NotKaydi[]
+) {
+  localStorage.setItem(
+    "aristo-notlar",
+    JSON.stringify(notlar)
+  );
+}
+
 export default function Notlar() {
   const [not, setNot] = useState("");
   const [arama, setArama] = useState("");
   const [notlar, setNotlar] = useState<NotKaydi[]>([]);
+  const [kaydediliyor, setKaydediliyor] =
+    useState(false);
 
   useEffect(() => {
-    try {
-      const veri: NotKaydi[] = JSON.parse(
-        localStorage.getItem("aristo-notlar") || "[]"
-      );
+    let aktif = true;
 
-      setNotlar(Array.isArray(veri) ? veri : []);
-    } catch {
-      setNotlar([]);
+    async function notlariYukle() {
+      const { data, error } = await supabase
+        .from("notlar")
+        .select("id, tarih, metin")
+        .order("id", { ascending: false });
+
+      if (!aktif) {
+        return;
+      }
+
+      if (error) {
+        console.error(
+          "Notlar okunamadı:",
+          error
+        );
+        window.alert(
+          "Notlar buluttan okunamadı."
+        );
+        return;
+      }
+
+      let bulutNotlari = data || [];
+
+      if (bulutNotlari.length === 0) {
+        try {
+          const eskiNotlar: NotKaydi[] =
+            JSON.parse(
+              localStorage.getItem(
+                "aristo-notlar"
+              ) || "[]"
+            );
+
+          if (
+            Array.isArray(eskiNotlar) &&
+            eskiNotlar.length > 0
+          ) {
+            const { data: aktarilanlar, error: aktarimHatasi } =
+              await supabase
+                .from("notlar")
+                .upsert(
+                  eskiNotlar.map((kayit) => ({
+                    id: Number(kayit.id),
+                    tarih: kayit.tarih,
+                    metin: kayit.metin,
+                  })),
+                  { onConflict: "id" }
+                )
+                .select("id, tarih, metin");
+
+            if (!aktif) {
+              return;
+            }
+
+            if (aktarimHatasi) {
+              console.error(
+                "Eski notlar aktarılamadı:",
+                aktarimHatasi
+              );
+              window.alert(
+                "Eski notlar buluta aktarılamadı."
+              );
+            } else {
+              bulutNotlari = aktarilanlar || [];
+            }
+          }
+        } catch (hata) {
+          console.error(
+            "Eski notlar okunamadı:",
+            hata
+          );
+        }
+      }
+
+      const yeniNotlar: NotKaydi[] =
+        bulutNotlari.map((kayit) => ({
+          id: Number(kayit.id || 0),
+          tarih: String(kayit.tarih ?? ""),
+          metin: String(kayit.metin ?? ""),
+        }));
+
+      setNotlar(yeniNotlar);
+      yerelNotOnbelleginiGuncelle(
+        yeniNotlar
+      );
     }
+
+    function odaklaninca() {
+      void notlariYukle();
+    }
+
+    void notlariYukle();
+    window.addEventListener(
+      "focus",
+      odaklaninca
+    );
+
+    return () => {
+      aktif = false;
+
+      window.removeEventListener(
+        "focus",
+        odaklaninca
+      );
+    };
   }, []);
 
-  function kayitlariKaydet(yeniListe: NotKaydi[]) {
-    setNotlar(yeniListe);
-
-    localStorage.setItem(
-      "aristo-notlar",
-      JSON.stringify(yeniListe)
-    );
-  }
-
-  function kaydet() {
+  async function kaydet() {
     if (!not.trim()) {
       alert("Not boş olamaz.");
       return;
     }
 
-    kayitlariKaydet([
-      {
-        id: Date.now(),
-        tarih: new Date().toLocaleString("tr-TR"),
-        metin: not.trim(),
-      },
-      ...notlar,
-    ]);
+    if (kaydediliyor) {
+      return;
+    }
 
+    const yeniNot: NotKaydi = {
+      id: Date.now(),
+      tarih: new Date().toLocaleString("tr-TR"),
+      metin: not.trim(),
+    };
+
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("notlar")
+      .insert({
+        id: yeniNot.id,
+        tarih: yeniNot.tarih,
+        metin: yeniNot.metin,
+      });
+
+    if (error) {
+      console.error(
+        "Not kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Not buluta kaydedilemedi."
+      );
+      setKaydediliyor(false);
+      return;
+    }
+
+    const yeniListe = [yeniNot, ...notlar];
+
+    setNotlar(yeniListe);
+    yerelNotOnbelleginiGuncelle(
+      yeniListe
+    );
     setNot("");
+    setKaydediliyor(false);
   }
 
-  function sil(id: number) {
+  async function sil(id: number) {
     if (!window.confirm("Not silinsin mi?")) return;
 
-    kayitlariKaydet(
-      notlar.filter((not) => not.id !== id)
+    const { error } = await supabase
+      .from("notlar")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error(
+        "Not silinemedi:",
+        error
+      );
+      window.alert(
+        "Not buluttan silinemedi."
+      );
+      return;
+    }
+
+    const yeniListe = notlar.filter(
+      (not) => not.id !== id
+    );
+
+    setNotlar(yeniListe);
+    yerelNotOnbelleginiGuncelle(
+      yeniListe
     );
   }
 
@@ -153,7 +304,11 @@ export default function Notlar() {
 
           <button
             onClick={kaydet}
-            style={yesil}
+            disabled={kaydediliyor}
+            style={{
+              ...yesil,
+              opacity: kaydediliyor ? 0.65 : 1,
+            }}
           >
             💾 Notu Kaydet
           </button>

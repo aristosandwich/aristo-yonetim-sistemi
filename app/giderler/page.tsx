@@ -7,6 +7,7 @@ import {
   type CSSProperties,
 } from "react";
 import Header from "../ui/Header";
+import { supabase } from "../lib/supabase";
 
 type OdemeTipi = "Nakit" | "Kart" | "Banka";
 
@@ -123,6 +124,59 @@ function varsayilanOdemeTipi(
   return "Nakit";
 }
 
+function supabaseKaydiniGiderKaydinaCevir(
+  kayit: Record<string, unknown>
+): GiderKaydi {
+  const odemeTipi = [
+    "Nakit",
+    "Kart",
+    "Banka",
+  ].includes(String(kayit.odeme_tipi))
+    ? (String(kayit.odeme_tipi) as OdemeTipi)
+    : "Nakit";
+
+  return {
+    id: Number(kayit.id || 0),
+    tarih: String(
+      kayit.tarih ||
+        new Date(
+          Number(kayit.id || Date.now())
+        ).toISOString()
+    ),
+    kategori: String(kayit.kategori ?? ""),
+    odemeTipi,
+    tutar: Number(kayit.tutar || 0),
+    aciklama: String(kayit.aciklama ?? ""),
+  };
+}
+
+function giderKaydiniSupabaseKaydinaCevir(
+  kayit: GiderKaydi
+) {
+  return {
+    id: kayit.id,
+    tarih:
+      kayit.tarih ||
+      new Date(kayit.id).toISOString(),
+    kategori: kayit.kategori,
+    odeme_tipi:
+      kayit.odemeTipi || "Nakit",
+    tutar: Number(kayit.tutar || 0),
+    aciklama: kayit.aciklama || "",
+  };
+}
+
+function yerelGiderOnbelleginiGuncelle(
+  giderler: GiderKaydi[]
+) {
+  localStorage.setItem(
+    "aristo-giderler",
+    JSON.stringify(giderler)
+  );
+
+  window.dispatchEvent(new Event("storage"));
+}
+
 export default function Giderler() {
   const [kategori, setKategori] =
     useState("Coca-Cola");
@@ -140,6 +194,9 @@ export default function Giderler() {
   const [duzenlenenId, setDuzenlenenId] =
     useState<number | null>(null);
 
+  const [kaydediliyor, setKaydediliyor] =
+    useState(false);
+
   const [mesaj, setMesaj] = useState("");
   const [arama, setArama] = useState("");
 
@@ -155,28 +212,112 @@ export default function Giderler() {
     useState("");
 
   useEffect(() => {
-    try {
-      const eskiKayitlar: GiderKaydi[] =
-        JSON.parse(
-          localStorage.getItem(
-            "aristo-giderler"
-          ) || "[]"
+    let aktif = true;
+
+    async function giderleriYukle() {
+      const { data, error } = await supabase
+        .from("giderler")
+        .select(
+          "id, tarih, kategori, odeme_tipi, tutar, aciklama"
+        )
+        .order("tarih", { ascending: false });
+
+      if (!aktif) {
+        return;
+      }
+
+      if (error) {
+        console.error(
+          "Giderler okunamadı:",
+          error
+        );
+        window.alert(
+          "Giderler buluttan okunamadı."
+        );
+        return;
+      }
+
+      let bulutGiderleri: GiderKaydi[] =
+        (data || []).map((kayit) =>
+          supabaseKaydiniGiderKaydinaCevir(
+            kayit as Record<string, unknown>
+          )
         );
 
-      const duzeltilmisKayitlar =
-        Array.isArray(eskiKayitlar)
-          ? eskiKayitlar.map((kayit) => ({
-              ...kayit,
-              odemeTipi:
-                kayit.odemeTipi ||
-                "Nakit",
-            }))
-          : [];
+      if (bulutGiderleri.length === 0) {
+        try {
+          const eskiKayitlar: GiderKaydi[] =
+            JSON.parse(
+              localStorage.getItem(
+                "aristo-giderler"
+              ) || "[]"
+            );
 
-      setKayitlar(duzeltilmisKayitlar);
-    } catch {
-      setKayitlar([]);
+          const duzeltilmisKayitlar =
+            Array.isArray(eskiKayitlar)
+              ? eskiKayitlar.map(
+                  (kayit) => ({
+                    ...kayit,
+                    tarih:
+                      kayit.tarih ||
+                      new Date(
+                        kayit.id
+                      ).toISOString(),
+                    odemeTipi:
+                      kayit.odemeTipi ||
+                      "Nakit",
+                  })
+                )
+              : [];
+
+          if (duzeltilmisKayitlar.length > 0) {
+            const { error: aktarimHatasi } =
+              await supabase
+                .from("giderler")
+                .upsert(
+                  duzeltilmisKayitlar.map(
+                    giderKaydiniSupabaseKaydinaCevir
+                  ),
+                  { onConflict: "id" }
+                );
+
+            if (aktarimHatasi) {
+              console.error(
+                "Eski giderler buluta aktarılamadı:",
+                aktarimHatasi
+              );
+              window.alert(
+                "Eski giderler buluta aktarılamadı."
+              );
+              return;
+            }
+
+            bulutGiderleri =
+              duzeltilmisKayitlar;
+          }
+        } catch (hata) {
+          console.error(
+            "Eski giderler okunamadı:",
+            hata
+          );
+        }
+      }
+
+      if (!aktif) {
+        return;
+      }
+
+      setKayitlar(bulutGiderleri);
+      yerelGiderOnbelleginiGuncelle(
+        bulutGiderleri
+      );
     }
+
+    giderleriYukle();
+
+    return () => {
+      aktif = false;
+    };
   }, []);
 
   function bildirimGoster(metin: string) {
@@ -207,7 +348,11 @@ export default function Giderler() {
     setDuzenlenenId(null);
   }
 
-  function kaydet() {
+  async function kaydet() {
+    if (kaydediliyor) {
+      return;
+    }
+
     const giderTutari = Number(tutar);
 
     if (giderTutari <= 0) {
@@ -215,66 +360,71 @@ export default function Giderler() {
       return;
     }
 
-    if (duzenlenenId !== null) {
-      const yeniKayitlar = kayitlar.map(
-        (kayit) =>
-          kayit.id === duzenlenenId
-            ? {
-                ...kayit,
-                kategori,
-                odemeTipi,
-                tutar: giderTutari,
-                aciklama:
-                  aciklama.trim(),
-              }
-            : kayit
-      );
+    const duzenlenenKayit =
+      duzenlenenId !== null
+        ? kayitlar.find(
+            (kayit) =>
+              kayit.id === duzenlenenId
+          )
+        : undefined;
 
-      setKayitlar(yeniKayitlar);
-
-      localStorage.setItem(
-        "aristo-giderler",
-        JSON.stringify(yeniKayitlar)
-      );
-
-      window.dispatchEvent(
-        new Event("storage")
-      );
-
-      formuTemizle();
-      bildirimGoster(
-        "Gider kaydı güncellendi."
-      );
-      return;
-    }
-
-    const yeniKayit: GiderKaydi = {
-      id: Date.now(),
-      tarih: new Date().toISOString(),
+    const kaydedilecekKayit: GiderKaydi = {
+      id: duzenlenenId ?? Date.now(),
+      tarih:
+        duzenlenenKayit?.tarih ||
+        new Date().toISOString(),
       kategori,
       odemeTipi,
       tutar: giderTutari,
       aciklama: aciklama.trim(),
     };
 
-    const yeniKayitlar = [
-      yeniKayit,
-      ...kayitlar,
-    ];
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("giderler")
+      .upsert(
+        giderKaydiniSupabaseKaydinaCevir(
+          kaydedilecekKayit
+        ),
+        { onConflict: "id" }
+      );
+
+    if (error) {
+      console.error(
+        "Gider kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Gider buluta kaydedilemedi. Form korunuyor; tekrar deneyebilirsin."
+      );
+      setKaydediliyor(false);
+      return;
+    }
+
+    const duzenlendi =
+      duzenlenenId !== null;
+
+    const yeniKayitlar = duzenlendi
+      ? kayitlar.map((kayit) =>
+          kayit.id === duzenlenenId
+            ? kaydedilecekKayit
+            : kayit
+        )
+      : [kaydedilecekKayit, ...kayitlar];
 
     setKayitlar(yeniKayitlar);
-
-    localStorage.setItem(
-      "aristo-giderler",
-      JSON.stringify(yeniKayitlar)
-    );
-
-    window.dispatchEvent(
-      new Event("storage")
+    yerelGiderOnbelleginiGuncelle(
+      yeniKayitlar
     );
 
     formuTemizle();
-    bildirimGoster("Gider kaydedildi.");
+    setKaydediliyor(false);
+    bildirimGoster(
+      duzenlendi
+        ? "Gider kaydı güncellendi."
+        : "Gider kaydedildi."
+    );
   }
 
   function kaydiDuzenle(
@@ -294,7 +444,7 @@ export default function Giderler() {
     });
   }
 
-  function kaydiSil(id: number) {
+  async function kaydiSil(id: number) {
     const onay = window.confirm(
       "Bu gider kaydı silinsin mi?"
     );
@@ -311,15 +461,25 @@ export default function Giderler() {
       (kayit) => kayit.id !== id
     );
 
+    const { error } = await supabase
+      .from("giderler")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error(
+        "Gider silinemedi:",
+        error
+      );
+      window.alert(
+        "Gider buluttan silinemedi. Kayıt korunuyor."
+      );
+      return;
+    }
+
     setKayitlar(yeniKayitlar);
-
-    localStorage.setItem(
-      "aristo-giderler",
-      JSON.stringify(yeniKayitlar)
-    );
-
-    window.dispatchEvent(
-      new Event("storage")
+    yerelGiderOnbelleginiGuncelle(
+      yeniKayitlar
     );
 
     if (duzenlenenId === id) {
@@ -720,6 +880,7 @@ export default function Giderler() {
           >
             <button
               onClick={kaydet}
+              disabled={kaydediliyor}
               style={{
                 border: "none",
                 borderRadius: "11px",
@@ -727,12 +888,19 @@ export default function Giderler() {
                 background: "#174d38",
                 color: "#ffffff",
                 fontWeight: 800,
-                cursor: "pointer",
+                cursor: kaydediliyor
+                  ? "wait"
+                  : "pointer",
+                opacity: kaydediliyor
+                  ? 0.75
+                  : 1,
               }}
             >
-              {duzenlenenId !== null
-                ? "💾 Değişiklikleri Kaydet"
-                : "💾 Gideri Kaydet"}
+              {kaydediliyor
+                ? "KAYDEDİLİYOR..."
+                : duzenlenenId !== null
+                  ? "💾 Değişiklikleri Kaydet"
+                  : "💾 Gideri Kaydet"}
             </button>
 
             {duzenlenenId !== null && (

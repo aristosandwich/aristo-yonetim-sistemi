@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type Fatura = {
   id: number;
@@ -18,6 +19,21 @@ type Odeme = {
   aciklama: string;
 };
 
+function yerelMudoOnbelleginiGuncelle(
+  faturalar: Fatura[],
+  odemeler: Odeme[]
+) {
+  localStorage.setItem(
+    "aristo-mudo-faturalar",
+    JSON.stringify(faturalar)
+  );
+
+  localStorage.setItem(
+    "aristo-mudo-odemeler",
+    JSON.stringify(odemeler)
+  );
+}
+
 export default function Mudo() {
   const [faturalar, setFaturalar] = useState<Fatura[]>([]);
   const [odemeler, setOdemeler] = useState<Odeme[]>([]);
@@ -32,42 +48,160 @@ export default function Mudo() {
   const [odemeAciklama, setOdemeAciklama] = useState("");
 
   const [arama, setArama] = useState("");
+  const [kaydediliyor, setKaydediliyor] =
+    useState(false);
 
   useEffect(() => {
-    try {
-      const eskiFaturalar: Fatura[] = JSON.parse(
-        localStorage.getItem("aristo-mudo-faturalar") || "[]"
-      );
+    let aktif = true;
 
-      const eskiOdemeler: Odeme[] = JSON.parse(
-        localStorage.getItem("aristo-mudo-odemeler") || "[]"
-      );
+    async function mudoKayitlariniYukle() {
+      const { data, error } = await supabase
+        .from("mudo")
+        .select(
+          "id, tarih, tip, fatura_no, tutar, aciklama"
+        )
+        .order("tarih", { ascending: false })
+        .order("id", { ascending: false });
 
-      setFaturalar(Array.isArray(eskiFaturalar) ? eskiFaturalar : []);
-      setOdemeler(Array.isArray(eskiOdemeler) ? eskiOdemeler : []);
-    } catch {
-      setFaturalar([]);
-      setOdemeler([]);
+      if (!aktif) {
+        return;
+      }
+
+      if (error) {
+        console.error(
+          "Mudo kayıtları okunamadı:",
+          error
+        );
+        window.alert(
+          "Mudo kayıtları buluttan okunamadı."
+        );
+        return;
+      }
+
+      let bulutKayitlari = data || [];
+
+      if (bulutKayitlari.length === 0) {
+        try {
+          const eskiFaturalar: Fatura[] =
+            JSON.parse(
+              localStorage.getItem(
+                "aristo-mudo-faturalar"
+              ) || "[]"
+            );
+
+          const eskiOdemeler: Odeme[] =
+            JSON.parse(
+              localStorage.getItem(
+                "aristo-mudo-odemeler"
+              ) || "[]"
+            );
+
+          const aktarilacakKayitlar = [
+            ...(Array.isArray(eskiFaturalar)
+              ? eskiFaturalar.map((fatura) => ({
+                  id: Number(fatura.id),
+                  tarih: fatura.tarih,
+                  tip: "Fatura",
+                  fatura_no: fatura.faturaNo,
+                  tutar: Number(fatura.tutar || 0),
+                  aciklama: fatura.aciklama,
+                }))
+              : []),
+            ...(Array.isArray(eskiOdemeler)
+              ? eskiOdemeler.map((odeme) => ({
+                  id: Number(odeme.id),
+                  tarih: odeme.tarih,
+                  tip: "Ödeme",
+                  fatura_no: "",
+                  tutar: Number(odeme.tutar || 0),
+                  aciklama: odeme.aciklama,
+                }))
+              : []),
+          ];
+
+          if (aktarilacakKayitlar.length > 0) {
+            const { data: aktarilanlar, error: aktarimHatasi } =
+              await supabase
+                .from("mudo")
+                .upsert(aktarilacakKayitlar, {
+                  onConflict: "id",
+                })
+                .select(
+                  "id, tarih, tip, fatura_no, tutar, aciklama"
+                );
+
+            if (!aktif) {
+              return;
+            }
+
+            if (aktarimHatasi) {
+              console.error(
+                "Eski Mudo kayıtları aktarılamadı:",
+                aktarimHatasi
+              );
+              window.alert(
+                "Eski Mudo kayıtları buluta aktarılamadı."
+              );
+            } else {
+              bulutKayitlari = aktarilanlar || [];
+            }
+          }
+        } catch (hata) {
+          console.error(
+            "Eski Mudo kayıtları okunamadı:",
+            hata
+          );
+        }
+      }
+
+      const yeniFaturalar: Fatura[] =
+        bulutKayitlari
+          .filter((kayit) => kayit.tip === "Fatura")
+          .map((kayit) => ({
+            id: Number(kayit.id || 0),
+            tarih: String(kayit.tarih ?? ""),
+            faturaNo: String(kayit.fatura_no ?? ""),
+            tutar: Number(kayit.tutar || 0),
+            aciklama: String(kayit.aciklama ?? ""),
+          }));
+
+      const yeniOdemeler: Odeme[] =
+        bulutKayitlari
+          .filter((kayit) => kayit.tip === "Ödeme")
+          .map((kayit) => ({
+            id: Number(kayit.id || 0),
+            tarih: String(kayit.tarih ?? ""),
+            tutar: Number(kayit.tutar || 0),
+            aciklama: String(kayit.aciklama ?? ""),
+          }));
+
+      setFaturalar(yeniFaturalar);
+      setOdemeler(yeniOdemeler);
+      yerelMudoOnbelleginiGuncelle(
+        yeniFaturalar,
+        yeniOdemeler
+      );
     }
+
+    function odaklaninca() {
+      void mudoKayitlariniYukle();
+    }
+
+    void mudoKayitlariniYukle();
+    window.addEventListener(
+      "focus",
+      odaklaninca
+    );
+
+    return () => {
+      aktif = false;
+
+      window.removeEventListener(
+        "focus",
+        odaklaninca
+      );
+    };
   }, []);
-
-  function faturalariKaydet(yeniListe: Fatura[]) {
-    setFaturalar(yeniListe);
-
-    localStorage.setItem(
-      "aristo-mudo-faturalar",
-      JSON.stringify(yeniListe)
-    );
-  }
-
-  function odemeleriKaydet(yeniListe: Odeme[]) {
-    setOdemeler(yeniListe);
-
-    localStorage.setItem(
-      "aristo-mudo-odemeler",
-      JSON.stringify(yeniListe)
-    );
-  }
 
   const toplamFatura = faturalar.reduce(
     (toplam, fatura) => toplam + Number(fatura.tutar || 0),
@@ -111,7 +245,7 @@ export default function Mudo() {
       0
     );
 
-  function faturaKaydet() {
+  async function faturaKaydet() {
     const tutar = Number(faturaTutari);
 
     if (!faturaTarihi || !Number.isFinite(tutar) || tutar <= 0) {
@@ -127,17 +261,53 @@ export default function Mudo() {
       aciklama: faturaAciklama.trim(),
     };
 
-    faturalariKaydet([yeniFatura, ...faturalar]);
+    if (kaydediliyor) {
+      return;
+    }
+
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("mudo")
+      .insert({
+        id: yeniFatura.id,
+        tarih: yeniFatura.tarih,
+        tip: "Fatura",
+        fatura_no: yeniFatura.faturaNo,
+        tutar: yeniFatura.tutar,
+        aciklama: yeniFatura.aciklama,
+      });
+
+    if (error) {
+      console.error(
+        "Mudo faturası kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Fatura buluta kaydedilemedi."
+      );
+      setKaydediliyor(false);
+      return;
+    }
+
+    const yeniListe = [yeniFatura, ...faturalar];
+
+    setFaturalar(yeniListe);
+    yerelMudoOnbelleginiGuncelle(
+      yeniListe,
+      odemeler
+    );
 
     setFaturaTarihi("");
     setFaturaNo("");
     setFaturaTutari("");
     setFaturaAciklama("");
+    setKaydediliyor(false);
 
     alert("Fatura kaydedildi.");
   }
 
-  function odemeKaydet() {
+  async function odemeKaydet() {
     const tutar = Number(odemeTutari);
 
     if (!odemeTarihi || !Number.isFinite(tutar) || tutar <= 0) {
@@ -152,32 +322,112 @@ export default function Mudo() {
       aciklama: odemeAciklama.trim(),
     };
 
-    odemeleriKaydet([yeniOdeme, ...odemeler]);
+    if (kaydediliyor) {
+      return;
+    }
+
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("mudo")
+      .insert({
+        id: yeniOdeme.id,
+        tarih: yeniOdeme.tarih,
+        tip: "Ödeme",
+        fatura_no: "",
+        tutar: yeniOdeme.tutar,
+        aciklama: yeniOdeme.aciklama,
+      });
+
+    if (error) {
+      console.error(
+        "Mudo ödemesi kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Ödeme buluta kaydedilemedi."
+      );
+      setKaydediliyor(false);
+      return;
+    }
+
+    const yeniListe = [yeniOdeme, ...odemeler];
+
+    setOdemeler(yeniListe);
+    yerelMudoOnbelleginiGuncelle(
+      faturalar,
+      yeniListe
+    );
 
     setOdemeTarihi("");
     setOdemeTutari("");
     setOdemeAciklama("");
+    setKaydediliyor(false);
 
     alert("Ödeme kaydedildi.");
   }
 
-  function faturaSil(id: number) {
+  async function faturaSil(id: number) {
     const onay = window.confirm("Bu fatura silinsin mi?");
 
     if (!onay) return;
 
-    faturalariKaydet(
-      faturalar.filter((fatura) => fatura.id !== id)
+    const { error } = await supabase
+      .from("mudo")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error(
+        "Mudo faturası silinemedi:",
+        error
+      );
+      window.alert(
+        "Fatura buluttan silinemedi."
+      );
+      return;
+    }
+
+    const yeniListe = faturalar.filter(
+      (fatura) => fatura.id !== id
+    );
+
+    setFaturalar(yeniListe);
+    yerelMudoOnbelleginiGuncelle(
+      yeniListe,
+      odemeler
     );
   }
 
-  function odemeSil(id: number) {
+  async function odemeSil(id: number) {
     const onay = window.confirm("Bu ödeme silinsin mi?");
 
     if (!onay) return;
 
-    odemeleriKaydet(
-      odemeler.filter((odeme) => odeme.id !== id)
+    const { error } = await supabase
+      .from("mudo")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error(
+        "Mudo ödemesi silinemedi:",
+        error
+      );
+      window.alert(
+        "Ödeme buluttan silinemedi."
+      );
+      return;
+    }
+
+    const yeniListe = odemeler.filter(
+      (odeme) => odeme.id !== id
+    );
+
+    setOdemeler(yeniListe);
+    yerelMudoOnbelleginiGuncelle(
+      faturalar,
+      yeniListe
     );
   }
 
@@ -459,7 +709,11 @@ export default function Mudo() {
 
             <button
               onClick={faturaKaydet}
-              style={yesilButon}
+              disabled={kaydediliyor}
+              style={{
+                ...yesilButon,
+                opacity: kaydediliyor ? 0.65 : 1,
+              }}
             >
               💾 Faturayı Kaydet
             </button>
@@ -528,7 +782,11 @@ export default function Mudo() {
 
             <button
               onClick={odemeKaydet}
-              style={yesilButon}
+              disabled={kaydediliyor}
+              style={{
+                ...yesilButon,
+                opacity: kaydediliyor ? 0.65 : 1,
+              }}
             >
               💾 Ödemeyi Kaydet
             </button>

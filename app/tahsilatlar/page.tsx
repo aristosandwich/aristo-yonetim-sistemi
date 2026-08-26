@@ -9,6 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 import Header from "../ui/Header";
+import { supabase } from "../lib/supabase";
 
 type Platform =
   | "GetirYemek"
@@ -49,6 +50,56 @@ function tarihiYaz(tarihMetni: string) {
   }).format(tarih);
 }
 
+function supabaseKaydiniTahsilatKaydinaCevir(
+  kayit: Record<string, unknown>
+): TahsilatKaydi {
+  const platform = [
+    "GetirYemek",
+    "Trendyol",
+    "Yemeksepeti",
+  ].includes(String(kayit.platform))
+    ? (String(kayit.platform) as Platform)
+    : "GetirYemek";
+
+  return {
+    id: Number(kayit.id || 0),
+    tarih: String(
+      kayit.tarih ||
+        new Date(
+          Number(kayit.id || Date.now())
+        ).toISOString()
+    ),
+    platform,
+    donem: String(kayit.donem ?? ""),
+    tutar: Number(kayit.tutar || 0),
+  };
+}
+
+function tahsilatKaydiniSupabaseKaydinaCevir(
+  kayit: TahsilatKaydi
+) {
+  return {
+    id: kayit.id,
+    tarih:
+      kayit.tarih ||
+      new Date(kayit.id).toISOString(),
+    platform: kayit.platform,
+    donem: kayit.donem || "",
+    tutar: Number(kayit.tutar || 0),
+  };
+}
+
+function yerelTahsilatOnbelleginiGuncelle(
+  tahsilatlar: TahsilatKaydi[]
+) {
+  localStorage.setItem(
+    "aristo-tahsilatlar",
+    JSON.stringify(tahsilatlar)
+  );
+
+  window.dispatchEvent(new Event("storage"));
+}
+
 export default function Tahsilatlar() {
   const [platform, setPlatform] =
     useState<Platform>("GetirYemek");
@@ -61,6 +112,9 @@ export default function Tahsilatlar() {
 
   const [duzenlenenId, setDuzenlenenId] =
     useState<number | null>(null);
+
+  const [kaydediliyor, setKaydediliyor] =
+    useState(false);
 
   const [arama, setArama] = useState("");
 
@@ -76,22 +130,109 @@ export default function Tahsilatlar() {
   const [mesaj, setMesaj] = useState("");
 
   useEffect(() => {
-    try {
-      const eskiKayitlar: TahsilatKaydi[] =
-        JSON.parse(
-          localStorage.getItem(
-            "aristo-tahsilatlar"
-          ) || "[]"
+    let aktif = true;
+
+    async function tahsilatlariYukle() {
+      const { data, error } = await supabase
+        .from("tahsilatlar")
+        .select(
+          "id, tarih, platform, donem, tutar"
+        )
+        .order("tarih", { ascending: false });
+
+      if (!aktif) {
+        return;
+      }
+
+      if (error) {
+        console.error(
+          "Tahsilatlar okunamadı:",
+          error
+        );
+        window.alert(
+          "Tahsilatlar buluttan okunamadı."
+        );
+        return;
+      }
+
+      let bulutTahsilatlari: TahsilatKaydi[] =
+        (data || []).map((kayit) =>
+          supabaseKaydiniTahsilatKaydinaCevir(
+            kayit as Record<string, unknown>
+          )
         );
 
-      setKayitlar(
-        Array.isArray(eskiKayitlar)
-          ? eskiKayitlar
-          : []
+      if (bulutTahsilatlari.length === 0) {
+        try {
+          const eskiKayitlar: TahsilatKaydi[] =
+            JSON.parse(
+              localStorage.getItem(
+                "aristo-tahsilatlar"
+              ) || "[]"
+            );
+
+          const duzeltilmisKayitlar =
+            Array.isArray(eskiKayitlar)
+              ? eskiKayitlar.map(
+                  (kayit) => ({
+                    ...kayit,
+                    tarih:
+                      kayit.tarih ||
+                      new Date(
+                        kayit.id
+                      ).toISOString(),
+                  })
+                )
+              : [];
+
+          if (duzeltilmisKayitlar.length > 0) {
+            const { error: aktarimHatasi } =
+              await supabase
+                .from("tahsilatlar")
+                .upsert(
+                  duzeltilmisKayitlar.map(
+                    tahsilatKaydiniSupabaseKaydinaCevir
+                  ),
+                  { onConflict: "id" }
+                );
+
+            if (aktarimHatasi) {
+              console.error(
+                "Eski tahsilatlar buluta aktarılamadı:",
+                aktarimHatasi
+              );
+              window.alert(
+                "Eski tahsilatlar buluta aktarılamadı."
+              );
+              return;
+            }
+
+            bulutTahsilatlari =
+              duzeltilmisKayitlar;
+          }
+        } catch (hata) {
+          console.error(
+            "Eski tahsilatlar okunamadı:",
+            hata
+          );
+        }
+      }
+
+      if (!aktif) {
+        return;
+      }
+
+      setKayitlar(bulutTahsilatlari);
+      yerelTahsilatOnbelleginiGuncelle(
+        bulutTahsilatlari
       );
-    } catch {
-      setKayitlar([]);
     }
+
+    tahsilatlariYukle();
+
+    return () => {
+      aktif = false;
+    };
   }, []);
 
   function bildirimGoster(metin: string) {
@@ -109,7 +250,11 @@ export default function Tahsilatlar() {
     setDuzenlenenId(null);
   }
 
-  function kaydet() {
+  async function kaydet() {
+    if (kaydediliyor) {
+      return;
+    }
+
     const netTutar = Number(tutar);
 
     if (netTutar <= 0) {
@@ -117,67 +262,69 @@ export default function Tahsilatlar() {
       return;
     }
 
-    if (duzenlenenId !== null) {
-      const yeniKayitlar = kayitlar.map(
-        (kayit) =>
-          kayit.id === duzenlenenId
-            ? {
-                ...kayit,
-                platform,
-                donem: donem.trim(),
-                tutar: netTutar,
-              }
-            : kayit
-      );
+    const duzenlenenKayit =
+      duzenlenenId !== null
+        ? kayitlar.find(
+            (kayit) =>
+              kayit.id === duzenlenenId
+          )
+        : undefined;
 
-      setKayitlar(yeniKayitlar);
-
-      localStorage.setItem(
-        "aristo-tahsilatlar",
-        JSON.stringify(yeniKayitlar)
-      );
-
-      window.dispatchEvent(
-        new Event("storage")
-      );
-
-      formuTemizle();
-
-      bildirimGoster(
-        "Tahsilat güncellendi."
-      );
-
-      return;
-    }
-
-    const yeniKayit: TahsilatKaydi = {
-      id: Date.now(),
-      tarih: new Date().toISOString(),
+    const kaydedilecekKayit: TahsilatKaydi = {
+      id: duzenlenenId ?? Date.now(),
+      tarih:
+        duzenlenenKayit?.tarih ||
+        new Date().toISOString(),
       platform,
       donem: donem.trim(),
       tutar: netTutar,
     };
 
-    const yeniKayitlar = [
-      yeniKayit,
-      ...kayitlar,
-    ];
+    setKaydediliyor(true);
+
+    const { error } = await supabase
+      .from("tahsilatlar")
+      .upsert(
+        tahsilatKaydiniSupabaseKaydinaCevir(
+          kaydedilecekKayit
+        ),
+        { onConflict: "id" }
+      );
+
+    if (error) {
+      console.error(
+        "Tahsilat kaydedilemedi:",
+        error
+      );
+      window.alert(
+        "Tahsilat buluta kaydedilemedi. Form korunuyor; tekrar deneyebilirsin."
+      );
+      setKaydediliyor(false);
+      return;
+    }
+
+    const duzenlendi =
+      duzenlenenId !== null;
+
+    const yeniKayitlar = duzenlendi
+      ? kayitlar.map((kayit) =>
+          kayit.id === duzenlenenId
+            ? kaydedilecekKayit
+            : kayit
+        )
+      : [kaydedilecekKayit, ...kayitlar];
 
     setKayitlar(yeniKayitlar);
-
-    localStorage.setItem(
-      "aristo-tahsilatlar",
-      JSON.stringify(yeniKayitlar)
-    );
-
-    window.dispatchEvent(
-      new Event("storage")
+    yerelTahsilatOnbelleginiGuncelle(
+      yeniKayitlar
     );
 
     formuTemizle();
-
+    setKaydediliyor(false);
     bildirimGoster(
-      "Net platform tahsilatı kaydedildi."
+      duzenlendi
+        ? "Tahsilat güncellendi."
+        : "Net platform tahsilatı kaydedildi."
     );
   }
 
@@ -195,7 +342,7 @@ export default function Tahsilatlar() {
     });
   }
 
-  function kaydiSil(id: number) {
+  async function kaydiSil(id: number) {
     const onay = window.confirm(
       "Bu tahsilat kaydı silinsin mi?"
     );
@@ -212,15 +359,25 @@ export default function Tahsilatlar() {
       (kayit) => kayit.id !== id
     );
 
+    const { error } = await supabase
+      .from("tahsilatlar")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error(
+        "Tahsilat silinemedi:",
+        error
+      );
+      window.alert(
+        "Tahsilat buluttan silinemedi. Kayıt korunuyor."
+      );
+      return;
+    }
+
     setKayitlar(yeniKayitlar);
-
-    localStorage.setItem(
-      "aristo-tahsilatlar",
-      JSON.stringify(yeniKayitlar)
-    );
-
-    window.dispatchEvent(
-      new Event("storage")
+    yerelTahsilatOnbelleginiGuncelle(
+      yeniKayitlar
     );
 
     if (duzenlenenId === id) {
@@ -569,6 +726,7 @@ export default function Tahsilatlar() {
           >
             <button
               onClick={kaydet}
+              disabled={kaydediliyor}
               style={{
                 border: "none",
                 borderRadius: "11px",
@@ -576,12 +734,19 @@ export default function Tahsilatlar() {
                 background: "#174d38",
                 color: "#ffffff",
                 fontWeight: 800,
-                cursor: "pointer",
+                cursor: kaydediliyor
+                  ? "wait"
+                  : "pointer",
+                opacity: kaydediliyor
+                  ? 0.75
+                  : 1,
               }}
             >
-              {duzenlenenId !== null
-                ? "💾 Değişiklikleri Kaydet"
-                : "💾 Net Tahsilatı Kaydet"}
+              {kaydediliyor
+                ? "KAYDEDİLİYOR..."
+                : duzenlenenId !== null
+                  ? "💾 Değişiklikleri Kaydet"
+                  : "💾 Net Tahsilatı Kaydet"}
             </button>
 
             {duzenlenenId !== null && (
