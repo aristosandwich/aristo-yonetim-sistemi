@@ -10,6 +10,45 @@ type NotKaydi = {
   metin: string;
 };
 
+function tarihiIsoYap(tarih: string) {
+  const temizTarih = tarih.trim();
+  const standartTarih = Date.parse(temizTarih);
+
+  if (!Number.isNaN(standartTarih)) {
+    return new Date(standartTarih).toISOString();
+  }
+
+  const turkceTarih = temizTarih.match(
+    /^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/
+  );
+
+  if (turkceTarih) {
+    const [, gun, ay, yil, saat, dakika, saniye = "0"] =
+      turkceTarih;
+
+    return new Date(
+      Number(yil),
+      Number(ay) - 1,
+      Number(gun),
+      Number(saat),
+      Number(dakika),
+      Number(saniye)
+    ).toISOString();
+  }
+
+  return new Date().toISOString();
+}
+
+function tarihiGoster(tarih: string) {
+  const zaman = Date.parse(tarih);
+
+  if (Number.isNaN(zaman)) {
+    return tarih;
+  }
+
+  return new Date(zaman).toLocaleString("tr-TR");
+}
+
 function yerelNotOnbelleginiGuncelle(
   notlar: NotKaydi[]
 ) {
@@ -71,7 +110,7 @@ export default function Notlar() {
                 .upsert(
                   eskiNotlar.map((kayit) => ({
                     id: Number(kayit.id),
-                    tarih: kayit.tarih,
+                    tarih: tarihiIsoYap(kayit.tarih),
                     metin: kayit.metin,
                   })),
                   { onConflict: "id" }
@@ -147,7 +186,7 @@ export default function Notlar() {
 
     const yeniNot: NotKaydi = {
       id: Date.now(),
-      tarih: new Date().toLocaleString("tr-TR"),
+      tarih: new Date().toISOString(),
       metin: not.trim(),
     };
 
@@ -358,7 +397,7 @@ export default function Notlar() {
                     color: "#6b7280",
                   }}
                 >
-                  {not.tarih}
+                  {tarihiGoster(not.tarih)}
                 </small>
 
                 <p
