@@ -23,6 +23,44 @@ const turler = [
   "Diğer",
 ];
 
+function tarihiStandartlastir(tarihMetni: string) {
+  const eslesme = String(tarihMetni || "")
+    .trim()
+    .match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (!eslesme) {
+    return null;
+  }
+
+  const [, yil, ay, gun] = eslesme;
+  const tarih = new Date(
+    Number(yil),
+    Number(ay) - 1,
+    Number(gun),
+    12,
+    0,
+    0
+  );
+
+  if (
+    tarih.getFullYear() !== Number(yil) ||
+    tarih.getMonth() !== Number(ay) - 1 ||
+    tarih.getDate() !== Number(gun)
+  ) {
+    return null;
+  }
+
+  return `${yil}-${ay}-${gun}`;
+}
+
+function tarihNesnesi(tarihMetni: string) {
+  const standartTarih = tarihiStandartlastir(tarihMetni);
+
+  return standartTarih
+    ? new Date(`${standartTarih}T12:00:00`)
+    : null;
+}
+
 export default function Takvim() {
   const [baslik, setBaslik] = useState("");
   const [tarih, setTarih] = useState("");
@@ -63,70 +101,16 @@ export default function Takvim() {
         return;
       }
 
-      let bulutKayitlari = data || [];
-
-      if (bulutKayitlari.length === 0) {
-        try {
-          const eskiKayitlar: TakvimKaydi[] =
-            JSON.parse(
-              localStorage.getItem(
-                "aristo-takvim"
-              ) || "[]"
-            );
-
-          if (
-            Array.isArray(eskiKayitlar) &&
-            eskiKayitlar.length > 0
-          ) {
-            const { data: aktarilanlar, error: aktarimHatasi } =
-              await supabase
-                .from("takvim")
-                .upsert(
-                  eskiKayitlar.map((kayit) => ({
-                    id: Number(kayit.id),
-                    baslik: kayit.baslik,
-                    tarih: kayit.tarih,
-                    tur: kayit.tur,
-                    aciklama: kayit.aciklama,
-                    tamamlandi: Boolean(
-                      kayit.tamamlandi
-                    ),
-                  })),
-                  { onConflict: "id" }
-                )
-                .select(
-                  "id, baslik, tarih, tur, aciklama, tamamlandi"
-                );
-
-            if (!aktif) {
-              return;
-            }
-
-            if (aktarimHatasi) {
-              console.error(
-                "Eski takvim kayıtları aktarılamadı:",
-                aktarimHatasi
-              );
-              window.alert(
-                "Eski takvim kayıtları buluta aktarılamadı."
-              );
-            } else {
-              bulutKayitlari = aktarilanlar || [];
-            }
-          }
-        } catch (hata) {
-          console.error(
-            "Eski takvim kayıtları okunamadı:",
-            hata
-          );
-        }
-      }
+      const bulutKayitlari = data || [];
 
       const yeniKayitlar: TakvimKaydi[] =
         bulutKayitlari.map((kayit) => ({
           id: Number(kayit.id || 0),
           baslik: String(kayit.baslik ?? ""),
-          tarih: String(kayit.tarih ?? ""),
+          tarih:
+            tarihiStandartlastir(
+              String(kayit.tarih ?? "")
+            ) || "",
           tur: String(kayit.tur ?? "Diğer"),
           aciklama: String(kayit.aciklama ?? ""),
           tamamlandi: Boolean(
@@ -183,10 +167,17 @@ export default function Takvim() {
       return;
     }
 
+    const standartTarih = tarihiStandartlastir(tarih);
+
+    if (!standartTarih) {
+      alert("Geçerli bir tarih seç.");
+      return;
+    }
+
     const yeniKayit: TakvimKaydi = {
       id: Date.now(),
       baslik: baslik.trim(),
-      tarih,
+      tarih: standartTarih,
       tur,
       aciklama: aciklama.trim(),
       tamamlandi: false,
@@ -302,18 +293,30 @@ export default function Takvim() {
   }
 
   function tarihiYaz(tarihMetni: string) {
+    const tarih = tarihNesnesi(tarihMetni);
+
+    if (!tarih) {
+      return "Geçersiz tarih";
+    }
+
     return new Intl.DateTimeFormat("tr-TR", {
       day: "2-digit",
       month: "long",
       year: "numeric",
-    }).format(new Date(`${tarihMetni}T12:00:00`));
+    }).format(tarih);
   }
 
   function kalanGun(tarihMetni: string) {
     const bugun = new Date();
     bugun.setHours(0, 0, 0, 0);
 
-    const hedef = new Date(`${tarihMetni}T00:00:00`);
+    const standartTarih = tarihiStandartlastir(tarihMetni);
+
+    if (!standartTarih) {
+      return null;
+    }
+
+    const hedef = new Date(`${standartTarih}T00:00:00`);
     hedef.setHours(0, 0, 0, 0);
 
     return Math.round(
@@ -354,8 +357,15 @@ export default function Takvim() {
   ).length;
 
   const gecikenSayisi = kayitlar.filter(
-    (kayit) =>
-      !kayit.tamamlandi && kalanGun(kayit.tarih) < 0
+    (kayit) => {
+      const gun = kalanGun(kayit.tarih);
+
+      return (
+        !kayit.tamamlandi &&
+        gun !== null &&
+        gun < 0
+      );
+    }
   ).length;
 
   const kartStili = {
@@ -662,10 +672,14 @@ export default function Takvim() {
             filtrelenmisKayitlar.map((kayit) => {
               const gun = kalanGun(kayit.tarih);
               const gecikmis =
-                !kayit.tamamlandi && gun < 0;
+                !kayit.tamamlandi &&
+                gun !== null &&
+                gun < 0;
 
               const gunMetni = kayit.tamamlandi
                 ? "Tamamlandı"
+                : gun === null
+                ? "Geçersiz tarih"
                 : gun === 0
                 ? "Bugün"
                 : gun === 1
