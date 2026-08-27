@@ -14,6 +14,7 @@ const YEDEK_TABLOLARI = [
   "urunler",
   "malzemeler",
   "receteler",
+  "acik_adisyonlar",
   "satislar",
   "giderler",
   "tahsilatlar",
@@ -30,6 +31,7 @@ type TabloAdi = (typeof YEDEK_TABLOLARI)[number];
 type TabloKaydi = Record<string, unknown>;
 
 const TABLO_SILME_SIRASI: TabloAdi[] = [
+  "acik_adisyonlar",
   "satislar",
   "receteler",
   "giderler",
@@ -417,7 +419,7 @@ export default function Yedekleme() {
 
       const yedek: YedekDosyasi = {
         uygulama: "Aristo Yönetim",
-        surum: "4.0-supabase",
+        surum: "4.1-supabase",
         olusturmaZamani: new Date().toISOString(),
         kayitSayisi,
         tablolar,
@@ -489,6 +491,10 @@ export default function Yedekleme() {
         hataGoster("Bu dosya geçerli bir Aristo yedeği değil.");
         setYuklenen(null);
         return;
+      }
+
+      if (!Array.isArray(veri.tablolar.acik_adisyonlar)) {
+        veri.tablolar.acik_adisyonlar = [];
       }
 
       const eksikVeyaHataliTablo =
@@ -654,6 +660,7 @@ export default function Yedekleme() {
       await tabloyuTemizle("satislar");
       await tabloyuTemizle("giderler");
       await tabloyuTemizle("tahsilatlar");
+      await tabloyuTemizle("acik_adisyonlar");
 
       const { error: kasaHatasi } =
         await supabase
