@@ -3,11 +3,13 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
 import Header from "../ui/Header";
 import { receteler } from "../data/receteler";
+import { supabase } from "../lib/supabase";
 
 type Kategori = "Sandviç" | "Salata" | "İçecek" | "Ek Ürün";
 type TopluKategori = "Tümü" | Kategori;
@@ -87,12 +89,85 @@ function yuvarlaFiyat(fiyat: number, yuvarlama: Yuvarlama) {
   return Math.round((fiyat + Number.EPSILON) * 100) / 100;
 }
 
+const URUN_SUTUNLARI = "id, ad, kategori, satis_fiyati, aktif";
+const FIYAT_AKTARIM_ISARETI = "aristo-urunler-bulut-fiyat-v1";
+const AKTARIM_ONCESI_YEDEK = "aristo-urunler-aktarim-oncesi-v1";
+
+// Geçersiz veya eksik fiyatları sıfır kabul edip kaydetme.
+function urunListesiniDogrula(veri: unknown, bulut: boolean): Urun[] {
+  if (!Array.isArray(veri)) throw new Error("Ürün listesi okunamadı.");
+  const kimlikler = new Set<number>();
+  return veri.map((ham: unknown) => {
+    if (!ham || typeof ham !== "object") throw new Error("Geçersiz ürün kaydı.");
+    const kayit = ham as Record<string, unknown>;
+    const id = Number(kayit.id);
+    const hamFiyat = bulut ? kayit.satis_fiyati : kayit.satisFiyati;
+    const fiyat = Number(hamFiyat);
+    const kategoriler: string[] = ["Sandviç", "Salata", "İçecek", "Ek Ürün"];
+    if (!Number.isSafeInteger(id) || id <= 0 || kimlikler.has(id) ||
+        typeof kayit.ad !== "string" || !kayit.ad.trim() ||
+        !kategoriler.includes(String(kayit.kategori)) ||
+        (typeof hamFiyat !== "number" && typeof hamFiyat !== "string") ||
+        String(hamFiyat).trim() === "" || !Number.isFinite(fiyat) || fiyat < 0 ||
+        typeof kayit.aktif !== "boolean") {
+      throw new Error("Ürün kaydında geçersiz fiyat veya bilgi var; fiyatlar değiştirilmedi.");
+    }
+    kimlikler.add(id);
+    return {
+      id, ad: kayit.ad, kategori: kayit.kategori as Kategori,
+      satisFiyati: fiyat, aktif: kayit.aktif,
+      maliyet: Number.isFinite(Number(kayit.maliyet)) ? Number(kayit.maliyet) : 0,
+    };
+  });
+}
+
+function fiyatlariBirlestir(bulut: Urun[], yerel: Urun[]): Urun[] {
+  const yerelHarita = new Map(yerel.map((urun) => [urun.id, urun]));
+  // İsim, kategori, aktiflik ve yeni ürünler ortak listeden korunur.
+  // Eski tarayıcı kaydından yalnızca aynı ürüne ait fiyat önerilir.
+  return bulut.map((urun) => {
+    const aday = yerelHarita.get(urun.id);
+    return aday && aday.ad === urun.ad && aday.kategori === urun.kategori
+      ? { ...urun, satisFiyati: aday.satisFiyati }
+      : urun;
+  });
+}
+
+function degisenleriBul(liste: Urun[], onceki: Urun[]): Urun[] {
+  const harita = new Map(onceki.map((urun) => [urun.id, urun]));
+  return liste.filter((urun) => {
+    const eski = harita.get(urun.id);
+    return !eski || eski.satisFiyati !== urun.satisFiyati || eski.aktif !== urun.aktif;
+  });
+}
+
+function fiyatOnbelleginiYaz(liste: Urun[]) {
+  // Yalnızca sunucudan doğrulanmış kayıtlar ana önbelleğe yazılır.
+  localStorage.setItem("aristo-urunler", JSON.stringify(liste));
+  localStorage.setItem(FIYAT_AKTARIM_ISARETI, "tamam");
+  window.dispatchEvent(new Event("storage"));
+}
+
 export default function Urunler() {
   const [urunler, setUrunler] = useState<Urun[]>([]);
   const [malzemeler, setMalzemeler] = useState<Malzeme[]>([]);
   const [arama, setArama] = useState("");
   const [kategori, setKategori] = useState<TopluKategori>("Tümü");
   const [mesaj, setMesaj] = useState("");
+  const [bulutUrunleri, setBulutUrunleri] = useState<Urun[]>([]);
+  const [yukleniyor, setYukleniyor] = useState(true);
+  const [bulutHazir, setBulutHazir] = useState(false);
+  const [kaydediliyor, setKaydediliyor] = useState(false);
+  const [yerelAktarimBekliyor, setYerelAktarimBekliyor] = useState(false);
+  const [hata, setHata] = useState("");
+  const [uyari, setUyari] = useState("");
+  const kayitKilidi = useRef(false);
+  const kilitli = yukleniyor || kaydediliyor || !bulutHazir;
+  const degisenUrunler = useMemo(
+    () => degisenleriBul(urunler, bulutUrunleri), [urunler, bulutUrunleri]
+  );
+  const kayitBekliyor = degisenUrunler.length > 0;
+
 
   const [topluKategori, setTopluKategori] =
     useState<TopluKategori>("Sandviç");
@@ -105,83 +180,168 @@ export default function Urunler() {
   const [onizlemeAcik, setOnizlemeAcik] = useState(false);
 
   useEffect(() => {
+    let aktif = true;
+    let yerelUrunler: Urun[] = [];
+    let aktarimTamam = false;
+    let hamYerel = "";
     try {
-      const kayitliUrunler: Urun[] = JSON.parse(
-        localStorage.getItem("aristo-urunler") || "[]"
-      );
-
-      const birlestirilmisUrunler = varsayilanUrunler.map(
-        (varsayilanUrun) => {
-          const kayitliUrun = kayitliUrunler.find(
-            (urun) => urun.id === varsayilanUrun.id
-          );
-
-          if (!kayitliUrun) {
-            return varsayilanUrun;
-          }
-
-          return {
-            ...varsayilanUrun,
-            satisFiyati: Number(
-              kayitliUrun.satisFiyati ??
-                varsayilanUrun.satisFiyati
-            ),
-            aktif:
-              kayitliUrun.aktif ??
-              varsayilanUrun.aktif,
-          };
-        }
-      );
-
-      setUrunler(birlestirilmisUrunler);
-
-      localStorage.setItem(
-        "aristo-urunler",
-        JSON.stringify(birlestirilmisUrunler)
-      );
+      hamYerel = localStorage.getItem("aristo-urunler") || "";
+      if (hamYerel) yerelUrunler = urunListesiniDogrula(JSON.parse(hamYerel), false);
+      aktarimTamam = localStorage.getItem(FIYAT_AKTARIM_ISARETI) === "tamam";
+      setUrunler(yerelUrunler);
     } catch {
-      setUrunler(varsayilanUrunler);
+      setUyari("Tarayıcıdaki ürün kopyası okunamadı. Ortak liste yüklenecek.");
     }
 
     try {
-      const kayitliMalzemeler: Malzeme[] = JSON.parse(
-        localStorage.getItem("aristo-malzemeler") || "[]"
-      );
-
-      setMalzemeler(
-        Array.isArray(kayitliMalzemeler)
-          ? kayitliMalzemeler
-          : []
-      );
+      const veri: unknown = JSON.parse(localStorage.getItem("aristo-malzemeler") || "[]");
+      setMalzemeler(Array.isArray(veri) ? veri as Malzeme[] : []);
     } catch {
       setMalzemeler([]);
     }
+
+    async function yukle() {
+      try {
+        const sonuc = await supabase.from("urunler").select(URUN_SUTUNLARI)
+          .order("id", { ascending: true });
+        if (sonuc.error) throw sonuc.error;
+        const ortak = urunListesiniDogrula(sonuc.data, true);
+        if (!ortak.length) throw new Error("Ortak ürün listesi boş; eski fiyatlar otomatik yüklenmedi.");
+        if (!aktif) return;
+
+        setBulutUrunleri(ortak);
+        const aday = aktarimTamam ? ortak : fiyatlariBirlestir(ortak, yerelUrunler);
+        const farkVar = degisenleriBul(aday, ortak).length > 0;
+
+        if (farkVar) {
+          // Yeni fiyatların üzerine eski bulut fiyatlarını yazma.
+          try {
+            if (!localStorage.getItem(AKTARIM_ONCESI_YEDEK)) {
+              localStorage.setItem(AKTARIM_ONCESI_YEDEK, hamYerel);
+            }
+          } catch {
+            setUyari("Tarayıcıya ek bir fiyat kopyası kaydedilemedi. İndirdiğin yedeği sakla.");
+          }
+          setUrunler(aday);
+          setYerelAktarimBekliyor(true);
+        } else {
+          setUrunler(ortak);
+          try { fiyatOnbelleginiYaz(ortak); }
+          catch { setUyari("Ortak fiyatlar okundu; tarayıcı kopyası güncellenemedi."); }
+        }
+        setBulutHazir(true);
+      } catch (err) {
+        console.error("Ürünler okunamadı:", err);
+        if (aktif) setHata("Ürünler sunucudan okunamadı. Fiyatlar değiştirilmedi. İnternetini ve oturumunu kontrol edip sayfayı yenile.");
+      } finally {
+        if (aktif) setYukleniyor(false);
+      }
+    }
+    void yukle();
+    return () => { aktif = false; };
   }, []);
+
+  useEffect(() => {
+    if (!kayitBekliyor && !kaydediliyor) return;
+    const uyarmadanCikma = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const baglantiTiklandi = (event: MouseEvent) => {
+      const hedef = event.target;
+      if (!(hedef instanceof Element)) return;
+      const link = hedef.closest("a[href]");
+      if (!link) return;
+      const metin = kayitKilidi.current
+        ? "Kayıt sürüyor. Tamamlanmadan çıkarsan aktarım yarıda kalabilir. Yine de çıkılsın mı?"
+        : "Kaydedilmeyen fiyatlar var. Kaydetmeden çıkılsın mı?";
+      if (!window.confirm(metin)) { event.preventDefault(); event.stopPropagation(); }
+    };
+    window.addEventListener("beforeunload", uyarmadanCikma);
+    document.addEventListener("click", baglantiTiklandi, true);
+    return () => {
+      window.removeEventListener("beforeunload", uyarmadanCikma);
+      document.removeEventListener("click", baglantiTiklandi, true);
+    };
+  }, [kayitBekliyor, kaydediliyor]);
 
   function bildirimGoster(metin: string) {
     setMesaj(metin);
-
-    window.setTimeout(() => {
-      setMesaj("");
-    }, 1800);
   }
 
-  function urunleriKaydet(
-    yeniListe: Urun[],
-    bildirim = true
-  ) {
-    setUrunler(yeniListe);
-
-    localStorage.setItem(
-      "aristo-urunler",
-      JSON.stringify(yeniListe)
-    );
-
-    window.dispatchEvent(new Event("storage"));
-
-    if (bildirim) {
-      bildirimGoster("Ürün fiyatları kaydedildi.");
+  // Ekrandaki düzenlemeler taslaktır. Tek Kaydet düğmesi, her tuş vuruşunda
+  // farklı bir fiyatın arka arkaya sunucuya gönderilmesini engeller.
+  function urunleriKaydet(yeniListe: Urun[], bildirim = true) {
+    if (kilitli || kayitKilidi.current) return;
+    if (yeniListe.some((urun) => !Number.isFinite(urun.satisFiyati) || urun.satisFiyati < 0)) {
+      setHata("Geçerli, sıfır veya daha büyük bir fiyat gir.");
+      return;
     }
+    setUrunler(yeniListe);
+    setHata("");
+    if (bildirim) bildirimGoster("Değişiklik hazır. Üstteki Kaydet ve Satışa Aktar düğmesine bas.");
+  }
+
+  async function bulutaKaydet() {
+    if (kilitli || kayitKilidi.current || !kayitBekliyor) return;
+    kayitKilidi.current = true;
+    setKaydediliyor(true);
+    setHata("");
+    setMesaj("");
+    let dogrulanmis = [...bulutUrunleri];
+    let kaydedilen = 0;
+    try {
+      const dogruListe = urunListesiniDogrula(urunler, false);
+      const degisenler = degisenleriBul(dogruListe, bulutUrunleri);
+      for (const urun of degisenler) {
+        const onceki = dogrulanmis.find((kayit) => kayit.id === urun.id);
+        if (!onceki) throw new Error("Ürün ortak listede bulunamadı.");
+        const degisiklik: { satis_fiyati?: number; aktif?: boolean } = {};
+        if (urun.satisFiyati !== onceki.satisFiyati) degisiklik.satis_fiyati = urun.satisFiyati;
+        if (urun.aktif !== onceki.aktif) degisiklik.aktif = urun.aktif;
+
+        // Sadece değişen alanları yaz. Başka bir ekranda değişmiş bir satırı
+        // eski kopyayla ezmemek için okuduğumuz değerleri de filtrele.
+        const sonuc = await supabase.from("urunler").update(degisiklik)
+          .eq("id", urun.id)
+          .eq("satis_fiyati", onceki.satisFiyati)
+          .eq("aktif", onceki.aktif)
+          .select(URUN_SUTUNLARI).maybeSingle();
+        if (sonuc.error) throw sonuc.error;
+        if (!sonuc.data) throw new Error("Ürün değişmiş veya kayıt izni verilmemiş.");
+        const kayit = urunListesiniDogrula([sonuc.data], true)[0];
+        if (kayit.id !== urun.id || kayit.satisFiyati !== urun.satisFiyati || kayit.aktif !== urun.aktif) {
+          throw new Error("Kaydedilen fiyat doğrulanamadı.");
+        }
+        dogrulanmis = dogrulanmis.map((eski) => eski.id === kayit.id ? kayit : eski);
+        kaydedilen += 1;
+        setBulutUrunleri(dogrulanmis);
+      }
+
+      setUrunler(dogrulanmis);
+      setYerelAktarimBekliyor(false);
+      try { fiyatOnbelleginiYaz(dogrulanmis); }
+      catch { setUyari("Fiyatlar sunucuya kaydedildi; yalnızca tarayıcı kopyası güncellenemedi."); }
+      bildirimGoster("Fiyatlar kaydedildi. Satış ekranını yenilediğinde güncel fiyatları göreceksin.");
+    } catch (err) {
+      console.error("Ürün fiyatları kaydedilemedi:", err);
+      setBulutUrunleri(dogrulanmis);
+      setHata(`${kaydedilen > 0 ? kaydedilen + " ürün kaydedildi; kalanlar kaydedilemedi." : "Fiyatlar kaydedilemedi."} Ekrandaki değişiklikler korunuyor. İnternetini ve oturumunu kontrol edip tekrar Kaydet'e bas. Sorun sürerse bu uyarıyı ilet.`);
+    } finally {
+      kayitKilidi.current = false;
+      setKaydediliyor(false);
+    }
+  }
+
+  function ortakFiyatlariKullan() {
+    if (kilitli || kayitKilidi.current) return;
+    if (!window.confirm("Ekrandaki değişiklikler bırakılıp satışın şu an kullandığı ortak fiyatlar gösterilsin mi?")) return;
+    setUrunler(bulutUrunleri);
+    setYerelAktarimBekliyor(false);
+    setHata("");
+    setMesaj("");
+    try { fiyatOnbelleginiYaz(bulutUrunleri); }
+    catch { setUyari("Ortak fiyatlar gösteriliyor; tarayıcı kopyası güncellenemedi."); }
   }
 
   function fiyatGuncelle(id: number, fiyat: number) {
@@ -228,12 +388,15 @@ export default function Urunler() {
 
   function varsayilanaDon() {
     const onay = window.confirm(
-      "Ürünler ilk menü fiyatlarına dönsün mü?"
+      "Fiyatlar ilk menü fiyatlarına dönsün mü? Uygulamak için ardından Kaydet düğmesine basmalısın."
     );
 
     if (!onay) return;
 
-    urunleriKaydet(varsayilanUrunler);
+    urunleriKaydet(urunler.map((urun) => {
+      const varsayilan = varsayilanUrunler.find((kayit) => kayit.id === urun.id && kayit.ad === urun.ad);
+      return varsayilan ? { ...urun, satisFiyati: varsayilan.satisFiyati } : urun;
+    }));
   }
 
   function yeniTopluFiyat(eskiFiyat: number) {
@@ -287,7 +450,7 @@ export default function Urunler() {
   ]);
 
   function topluDegisikligiOnizle() {
-    if (Number(degisimMiktari || 0) <= 0) {
+    if (!Number.isFinite(Number(degisimMiktari)) || Number(degisimMiktari || 0) <= 0) {
       alert("Değişim miktarını gir.");
       return;
     }
@@ -301,6 +464,7 @@ export default function Urunler() {
   }
 
   function topluDegisikligiUygula() {
+    if (kilitli || kayitKilidi.current) return;
     const onay = window.confirm(
       `${topluEtkilenecekUrunler.length} ürünün fiyatı değiştirilsin mi?`
     );
@@ -509,8 +673,39 @@ export default function Urunler() {
             color: "#66736c",
           }}
         >
-          Tek tek veya toplu şekilde zam ve indirim uygula.
+          Fiyatları düzenle, ardından Kaydet ve Satışa Aktar düğmesine bas.
         </p>
+
+        <section aria-label="Fiyat kaydı" style={{
+          ...kartStili, marginBottom: "18px", border: "2px solid #174d38",
+          position: "sticky", top: "8px", zIndex: 20,
+        }}>
+          <strong role="status" aria-live="polite">
+            {yukleniyor ? "Fiyatlar yükleniyor…" : kaydediliyor ? "Fiyatlar kaydediliyor…"
+              : yerelAktarimBekliyor ? "Bu ekrandaki güncel fiyatlar henüz satışa aktarılmadı."
+              : kayitBekliyor ? `${degisenUrunler.length} üründe kaydedilmeyen değişiklik var.`
+              : bulutHazir ? "Fiyatlar ortak listeden okunuyor." : "Fiyat bağlantısı kurulamadı."}
+          </strong>
+          {yerelAktarimBekliyor && <p style={{ margin: "8px 0", color: "#705019" }}>
+            Aşağıdaki fiyatlar bu tarayıcıdaki listenden alındı. Güncel fiyatların bunlarsa
+            Kaydet ve Satışa Aktar'a bas. Sayfayı açmak tek başına fiyat değiştirmez.
+          </p>}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "12px" }}>
+            <button type="button" onClick={() => void bulutaKaydet()}
+              disabled={kilitli || !kayitBekliyor}
+              style={{ ...butonStili, background: "#174d38", color: "white", minHeight: "48px",
+                opacity: kilitli || !kayitBekliyor ? 0.55 : 1 }}>
+              {kaydediliyor ? "Kaydediliyor…" : "Kaydet ve Satışa Aktar"}
+            </button>
+            {kayitBekliyor && <button type="button" onClick={ortakFiyatlariKullan}
+              disabled={kilitli} style={butonStili}>
+              Değişiklikleri Bırak
+            </button>}
+          </div>
+          {hata && <p role="alert" style={{ color: "#b91c1c", marginBottom: 0 }}>{hata}</p>}
+          {uyari && <p role="status" style={{ color: "#92400e", marginBottom: 0 }}>{uyari}</p>}
+          {mesaj && <p role="status" style={{ color: "#174d38", marginBottom: 0 }}>{mesaj}</p>}
+        </section>
 
         <section
           style={{
@@ -634,6 +829,7 @@ export default function Urunler() {
               </label>
 
               <select
+                disabled={kilitli}
                 value={topluKategori}
                 onChange={(event) =>
                   setTopluKategori(
@@ -659,6 +855,7 @@ export default function Urunler() {
               </label>
 
               <select
+                disabled={kilitli}
                 value={degisimYonu}
                 onChange={(event) =>
                   setDegisimYonu(
@@ -681,6 +878,7 @@ export default function Urunler() {
               </label>
 
               <select
+                disabled={kilitli}
                 value={degisimTipi}
                 onChange={(event) =>
                   setDegisimTipi(
@@ -707,6 +905,7 @@ export default function Urunler() {
               </label>
 
               <input
+                disabled={kilitli}
                 type="number"
                 min="0"
                 step="0.01"
@@ -734,6 +933,7 @@ export default function Urunler() {
               </label>
 
               <select
+                disabled={kilitli}
                 value={yuvarlama}
                 onChange={(event) =>
                   setYuvarlama(
@@ -753,6 +953,7 @@ export default function Urunler() {
           </div>
 
           <button
+                disabled={kilitli}
             onClick={topluDegisikligiOnizle}
             style={{
               marginTop: "15px",
@@ -788,6 +989,7 @@ export default function Urunler() {
             </label>
 
             <input
+                disabled={kilitli}
               value={arama}
               onChange={(event) =>
                 setArama(event.target.value)
@@ -806,6 +1008,7 @@ export default function Urunler() {
             </label>
 
             <select
+                disabled={kilitli}
               value={kategori}
               onChange={(event) =>
                 setKategori(
@@ -832,6 +1035,7 @@ export default function Urunler() {
             }}
           >
             <button
+                disabled={kilitli}
               onClick={varsayilanaDon}
               style={{
                 ...butonStili,
@@ -919,6 +1123,7 @@ export default function Urunler() {
                         }}
                       >
                         <input
+                disabled={kilitli}
                           type="checkbox"
                           checked={urun.aktif}
                           onChange={(event) =>
@@ -946,6 +1151,7 @@ export default function Urunler() {
                       }}
                     >
                       <button
+                disabled={kilitli}
                         onClick={() =>
                           fiyatiDegistir(
                             urun.id,
@@ -963,6 +1169,7 @@ export default function Urunler() {
                       </button>
 
                       <input
+                disabled={kilitli}
                         type="number"
                         min="0"
                         value={
@@ -986,6 +1193,7 @@ export default function Urunler() {
                       />
 
                       <button
+                disabled={kilitli}
                         onClick={() =>
                           fiyatiDegistir(
                             urun.id,
@@ -1016,6 +1224,7 @@ export default function Urunler() {
                       {[-10, 10, 25].map(
                         (fark) => (
                           <button
+                disabled={kilitli}
                             key={fark}
                             onClick={() =>
                               fiyatiDegistir(
@@ -1201,6 +1410,7 @@ export default function Urunler() {
               }}
             >
               <button
+                disabled={kilitli}
                 onClick={() =>
                   setOnizlemeAcik(false)
                 }
@@ -1213,6 +1423,7 @@ export default function Urunler() {
               </button>
 
               <button
+                disabled={kilitli}
                 onClick={
                   topluDegisikligiUygula
                 }
@@ -1229,34 +1440,13 @@ export default function Urunler() {
                   cursor: "pointer",
                 }}
               >
-                ✅ Onayla ve Uygula
+                Taslağa Uygula; Sonra Kaydet
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {mesaj && (
-        <div
-          style={{
-            position: "fixed",
-            left: "50%",
-            bottom: "24px",
-            transform:
-              "translateX(-50%)",
-            zIndex: 9999,
-            padding: "14px 20px",
-            borderRadius: "12px",
-            background: "#174d38",
-            color: "#ffffff",
-            fontWeight: 800,
-            boxShadow:
-              "0 12px 30px rgba(0,0,0,0.2)",
-          }}
-        >
-          ✅ {mesaj}
-        </div>
-      )}
     </main>
   );
 }
