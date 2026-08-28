@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { aristoYaz, bekleyenIslemiTamamla, hataMesaji, kurus, tutarMetni, onbellekYaz, tumKayitlariOku } from "../lib/aristoIslemler";
 
 function para(tutar: number) {
   return new Intl.NumberFormat("tr-TR", {
@@ -11,16 +12,7 @@ function para(tutar: number) {
   }).format(tutar);
 }
 
-function yerelKasaOnbelleginiGuncelle(
-  tutar: number
-) {
-  localStorage.setItem(
-    "aristo-kasa",
-    String(tutar)
-  );
-
-  window.dispatchEvent(new Event("storage"));
-}
+function yerelKasaOnbelleginiGuncelle(tutar: number) { onbellekYaz("aristo-kasa", String(tutar)); }
 
 export default function Kasa() {
   const [acilis, setAcilis] = useState("");
@@ -29,161 +21,52 @@ export default function Kasa() {
   const [kaydediliyor, setKaydediliyor] =
     useState(false);
 
+  const [surum, setSurum] = useState(0);
+  const [hazir, setHazir] = useState(false);
+  const [veriHatasi, setVeriHatasi] = useState("");
+  const islemKilidi = useRef(false);
   useEffect(() => {
     let aktif = true;
-
-    async function kasayiYukle() {
-      const { data, error } = await supabase
-        .from("kasa")
-        .select("id, tutar")
-        .eq("id", 1)
-        .maybeSingle();
-
-      if (!aktif) {
-        return;
-      }
-
-      if (error) {
-        console.error("Kasa okunamadı:", error);
-        window.alert(
-          "Kasa buluttan okunamadı."
-        );
-        return;
-      }
-
-      if (data) {
-        const bulutTutari = Number(
-          data.tutar || 0
-        );
-
-        setKasadakiPara(bulutTutari);
-        yerelKasaOnbelleginiGuncelle(
-          bulutTutari
-        );
-        return;
-      }
-
-      const yerelVeri =
-        localStorage.getItem("aristo-kasa");
-
-      const ilkTutar =
-        yerelVeri === null
-          ? 0
-          : Number(yerelVeri || 0);
-
-      const { error: aktarimHatasi } =
-        await supabase.from("kasa").upsert(
-          {
-            id: 1,
-            tutar: ilkTutar,
-            updated_at:
-              new Date().toISOString(),
-          },
-          { onConflict: "id" }
-        );
-
-      if (!aktif) {
-        return;
-      }
-
-      if (aktarimHatasi) {
-        console.error(
-          "Eski kasa tutarı buluta aktarılamadı:",
-          aktarimHatasi
-        );
-        window.alert(
-          "Eski kasa tutarı buluta aktarılamadı."
-        );
-        return;
-      }
-
-      setKasadakiPara(ilkTutar);
-      yerelKasaOnbelleginiGuncelle(
-        ilkTutar
-      );
+    async function yukle() {
+      try {
+        await bekleyenIslemiTamamla();
+        const {data, error} = await supabase.from("kasa").select("id,tutar,surum").eq("id",1).single();
+        if (error) throw error;
+        if (!aktif) return;
+        setKasadakiPara(Number(data.tutar)); setSurum(Number(data.surum)); setHazir(true);
+        yerelKasaOnbelleginiGuncelle(Number(data.tutar));
+      } catch (h) { if (aktif) setVeriHatasi(hataMesaji(h)); }
     }
-
-    kasayiYukle();
-
-    return () => {
-      aktif = false;
-    };
+    void yukle();
+    const ayrilma = (e: BeforeUnloadEvent) => { if (islemKilidi.current) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", ayrilma);
+    return () => { aktif = false; window.removeEventListener("beforeunload", ayrilma); };
   }, []);
-
-  async function kaydet(
-    yeniTutar: number
-  ): Promise<boolean> {
-    if (kaydediliyor) {
-      return false;
-    }
-
-    setKaydediliyor(true);
-
-    const { error } = await supabase
-      .from("kasa")
-      .upsert(
-        {
-          id: 1,
-          tutar: yeniTutar,
-          updated_at:
-            new Date().toISOString(),
-        },
-        { onConflict: "id" }
-      );
-
-    if (error) {
-      console.error(
-        "Kasa kaydedilemedi:",
-        error
-      );
-      window.alert(
-        "Kasa buluta kaydedilemedi. Mevcut bakiye korunuyor."
-      );
-      setKaydediliyor(false);
-      return false;
-    }
-
-    setKasadakiPara(yeniTutar);
-    yerelKasaOnbelleginiGuncelle(
-      yeniTutar
-    );
-    setKaydediliyor(false);
-    return true;
+  async function kaydet(tip: "acilis" | "ekle" | "cikar", deger: string) {
+    if (!hazir || veriHatasi || islemKilidi.current) return;
+    let tutar: string;
+    try { tutar = tutarMetni(deger); if (tip !== "acilis" && kurus(tutar) === 0) throw new Error("Tutar sıfırdan büyük olmalı."); }
+    catch (h) { window.alert(hataMesaji(h)); return; }
+    islemKilidi.current = true; setKaydediliyor(true);
+    try {
+      const sonuc = await aristoYaz("kasa", { tip, tutar, beklenenSurum: tip === "acilis" ? surum : undefined });
+      setKasadakiPara(Number(sonuc.kasa.tutar)); setSurum(Number(sonuc.kasa.surum));
+      yerelKasaOnbelleginiGuncelle(Number(sonuc.kasa.tutar)); setAcilis("");
+    } catch (h) { setVeriHatasi(hataMesaji(h)); }
+    finally { islemKilidi.current = false; setKaydediliyor(false); }
   }
-
   async function kasaAc() {
-    const tutar = Number(acilis);
-
-    if (tutar < 0) {
-      alert("Geçerli tutar gir.");
-      return;
-    }
-
-    const kaydedildi = await kaydet(tutar);
-
-    if (kaydedildi) {
-      alert("Kasa açılışı kaydedildi.");
-    }
+    try { tutarMetni(acilis); } catch(h) { window.alert(hataMesaji(h)); return; }
+    if (!window.confirm("Kasayı saydınız mı? Mevcut bakiye, girdiğiniz toplam tutarla değiştirilecek.")) return;
+    await kaydet("acilis", acilis);
   }
-
   async function paraEkle() {
-    const miktar = Number(
-      prompt("Kasaya eklenecek tutar")
-    );
-
-    if (!miktar || miktar <= 0) return;
-
-    await kaydet(kasadakiPara + miktar);
+    const deger = window.prompt("Kasaya eklenecek tutar (satışları burada tekrar eklemeyin)");
+    if (deger !== null) await kaydet("ekle", deger);
   }
-
   async function paraCikar() {
-    const miktar = Number(
-      prompt("Kasadan çıkacak tutar")
-    );
-
-    if (!miktar || miktar <= 0) return;
-
-    await kaydet(kasadakiPara - miktar);
+    const deger = window.prompt("Kasadan çıkacak tutar (nakit giderleri burada tekrar çıkarmayın)");
+    if (deger !== null) await kaydet("cikar", deger);
   }
 
   const kart = {
@@ -239,6 +122,9 @@ export default function Kasa() {
         <Link href="/">← Ana Sayfaya Dön</Link>
 
         <h1>💵 Kasa</h1>
+        <p>Nakit satış ve giderler otomatik işlenir. Kart/banka ödemeleri nakit kasayı değiştirmez.</p>
+        <p role="status">{veriHatasi || (!hazir ? "Kasa buluttan okunuyor…" : "")}</p>
+        {veriHatasi && <button onClick={() => window.location.reload()}>Güncel bakiyeyi yükle</button>}
 
         <div
           style={{
@@ -262,7 +148,7 @@ export default function Kasa() {
         </div>
 
         <div style={kart}>
-          <label>Kasa Açılış Tutarı</label>
+          <label>Sayım Sonrası Toplam Kasa Tutarı</label>
 
           <input
             type="number"
@@ -278,7 +164,7 @@ export default function Kasa() {
 
           <button
             onClick={kasaAc}
-            disabled={kaydediliyor}
+            disabled={!hazir || kaydediliyor || !!veriHatasi}
             style={{
               ...yesil,
               cursor: kaydediliyor
@@ -291,7 +177,7 @@ export default function Kasa() {
           >
             {kaydediliyor
               ? "KAYDEDİLİYOR..."
-              : "💾 Açılışı Kaydet"}
+              : "💾 Sayım Tutarını Kaydet"}
           </button>
 
           <hr style={{ margin: "28px 0" }} />
@@ -305,7 +191,7 @@ export default function Kasa() {
           >
             <button
               onClick={paraEkle}
-              disabled={kaydediliyor}
+              disabled={!hazir || kaydediliyor || !!veriHatasi}
               style={{
                 ...yesil,
                 opacity: kaydediliyor
@@ -318,7 +204,7 @@ export default function Kasa() {
 
             <button
               onClick={paraCikar}
-              disabled={kaydediliyor}
+              disabled={!hazir || kaydediliyor || !!veriHatasi}
               style={{
                 ...gri,
                 opacity: kaydediliyor

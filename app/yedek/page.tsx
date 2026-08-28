@@ -25,27 +25,11 @@ const YEDEK_TABLOLARI = [
   "notlar",
   "rehber",
   "ayarlar",
+  "aristo_islem_sonuclari_v2",
 ] as const;
 
 type TabloAdi = (typeof YEDEK_TABLOLARI)[number];
 type TabloKaydi = Record<string, unknown>;
-
-const TABLO_SILME_SIRASI: TabloAdi[] = [
-  "acik_adisyonlar",
-  "satislar",
-  "receteler",
-  "giderler",
-  "tahsilatlar",
-  "kasa",
-  "mudo",
-  "cari",
-  "takvim",
-  "notlar",
-  "rehber",
-  "ayarlar",
-  "urunler",
-  "malzemeler",
-];
 
 type YedekDosyasi = {
   uygulama: "Aristo Yönetim";
@@ -176,49 +160,6 @@ async function bulutVerileriniOku() {
   return tablolar;
 }
 
-async function tabloyuTemizle(
-  tablo: TabloAdi
-) {
-  const { error } = await supabase
-    .from(tablo)
-    .delete()
-    .not("id", "is", null);
-
-  if (error) {
-    throw new Error(
-      `${tablo}: ${error.message}`
-    );
-  }
-}
-
-async function tabloKayitlariniEkle(
-  tablo: TabloAdi,
-  kayitlar: TabloKaydi[]
-) {
-  const parcaBoyutu = 500;
-
-  for (
-    let baslangic = 0;
-    baslangic < kayitlar.length;
-    baslangic += parcaBoyutu
-  ) {
-    const parca = kayitlar.slice(
-      baslangic,
-      baslangic + parcaBoyutu
-    );
-
-    const { error } = await supabase
-      .from(tablo)
-      .insert(parca);
-
-    if (error) {
-      throw new Error(
-        `${tablo}: ${error.message}`
-      );
-    }
-  }
-}
-
 function yedekGecerliMi(deger: unknown): deger is YedekDosyasi {
   if (!deger || typeof deger !== "object") {
     return false;
@@ -238,59 +179,6 @@ function yedekGecerliMi(deger: unknown): deger is YedekDosyasi {
     typeof aday.yerelVeriler === "object" &&
     !Array.isArray(aday.yerelVeriler)
   );
-}
-
-async function yoneticiSifresiniOku() {
-  const { data } = await supabase
-    .from("ayarlar")
-    .select("veri")
-    .eq("id", 1)
-    .maybeSingle();
-
-  if (
-    data?.veri &&
-    typeof data.veri === "object" &&
-    !Array.isArray(data.veri) &&
-    "yoneticiSifresi" in data.veri
-  ) {
-    return String(
-      data.veri.yoneticiSifresi || "1234"
-    );
-  }
-
-  try {
-    const kayitli = localStorage.getItem("aristo-ayarlar");
-
-    if (!kayitli) {
-      return "1234";
-    }
-
-    const ayarlar = JSON.parse(kayitli);
-
-    return String(ayarlar.yoneticiSifresi || "1234");
-  } catch {
-    return "1234";
-  }
-}
-
-async function yoneticiOnayiAl() {
-  const girilenSifre = window.prompt(
-    "🔒 Yönetici şifresini gir:"
-  );
-
-  if (girilenSifre === null) {
-    return false;
-  }
-
-  const dogruSifre =
-    await yoneticiSifresiniOku();
-
-  if (girilenSifre !== dogruSifre) {
-    window.alert("❌ Hatalı yönetici şifresi.");
-    return false;
-  }
-
-  return true;
 }
 
 export default function Yedekleme() {
@@ -419,7 +307,7 @@ export default function Yedekleme() {
 
       const yedek: YedekDosyasi = {
         uygulama: "Aristo Yönetim",
-        surum: "4.1-supabase",
+        surum: "4.2-supabase",
         olusturmaZamani: new Date().toISOString(),
         kayitSayisi,
         tablolar,
@@ -543,180 +431,11 @@ export default function Yedekleme() {
   }
 
   async function geriYukle() {
-    if (!yuklenen) {
-      return;
-    }
-
-    if (!(await yoneticiOnayiAl())) {
-      return;
-    }
-
-    const ilkOnay = window.confirm(
-      "Bu işlem mevcut Aristo verilerini seçtiğin yedekle değiştirecek. Devam edilsin mi?"
-    );
-
-    if (!ilkOnay) {
-      return;
-    }
-
-    const ikinciOnay = window.confirm(
-      "Son onay: Mevcut satış, gider, ürün ve diğer kayıtların üzerine yazılacak. Emin misin?"
-    );
-
-    if (!ikinciOnay) {
-      return;
-    }
-
-    try {
-      setGeriYukleniyor(true);
-      setHata("");
-
-      for (const tablo of TABLO_SILME_SIRASI) {
-        await tabloyuTemizle(tablo);
-      }
-
-      for (const tablo of YEDEK_TABLOLARI) {
-        await tabloKayitlariniEkle(
-          tablo,
-          yuklenen.yedek.tablolar[tablo]
-        );
-      }
-
-      const silinecekAnahtarlar: string[] = [];
-
-      for (
-        let index = 0;
-        index < localStorage.length;
-        index += 1
-      ) {
-        const anahtar = localStorage.key(index);
-
-        if (anahtar?.startsWith(ARISTO_ON_EKI)) {
-          silinecekAnahtarlar.push(anahtar);
-        }
-      }
-
-      silinecekAnahtarlar.forEach((anahtar) => {
-        localStorage.removeItem(anahtar);
-      });
-
-      Object.entries(
-        yuklenen.yedek.yerelVeriler
-      ).forEach(([anahtar, deger]) => {
-        localStorage.setItem(anahtar, deger);
-      });
-
-      window.dispatchEvent(new Event("storage"));
-
-      setYuklenen(null);
-      bildirimGoster(
-        "Supabase yedeği başarıyla geri yüklendi. Sayfa yenileniyor."
-      );
-
-      window.setTimeout(() => {
-        window.location.reload();
-      }, 1200);
-    } catch (hata) {
-      console.error(
-        "Yedek geri yüklenirken hata oluştu:",
-        hata
-      );
-      hataGoster(
-        "Yedek geri yüklenirken hata oluştu. Mevcut yedek dosyasını koru ve işlemi tekrar denemeden önce hata kaydını kontrol et."
-      );
-      setGeriYukleniyor(false);
-    }
+    hataGoster("Geri yükleme güvenlik kontrolü tamamlanana kadar kapalı. Yedek indirme kullanılabilir.");
   }
 
   async function demoVerileriniTemizle() {
-    if (temizleniyor) {
-      return;
-    }
-
-    if (!(await yoneticiOnayiAl())) {
-      return;
-    }
-
-    const onay = window.confirm(
-      "Demo satış, gider, tahsilat, kasa ve açık adisyon kayıtları silinecek. Ürünler, fiyatlar, malzemeler, reçeteler ve ayarlar korunacak. Devam edilsin mi?"
-    );
-
-    if (!onay) {
-      return;
-    }
-
-    const sonOnay = window.confirm(
-      "SON ONAY: Bu işlem geri alınamaz. Gerçek kayıt girdiysen onlar da silinir. Emin misin?"
-    );
-
-    if (!sonOnay) {
-      return;
-    }
-
-    try {
-      setTemizleniyor(true);
-      setHata("");
-
-      await tabloyuTemizle("satislar");
-      await tabloyuTemizle("giderler");
-      await tabloyuTemizle("tahsilatlar");
-      await tabloyuTemizle("acik_adisyonlar");
-
-      const { error: kasaHatasi } =
-        await supabase
-          .from("kasa")
-          .upsert(
-            {
-              id: 1,
-              tutar: 0,
-              updated_at:
-                new Date().toISOString(),
-            },
-            { onConflict: "id" }
-          );
-
-      if (kasaHatasi) {
-        throw new Error(
-          `kasa: ${kasaHatasi.message}`
-        );
-      }
-
-      const silinecekAnahtarlar = [
-        "aristo-satislar",
-        "aristo-giderler",
-        "aristo-tahsilatlar",
-        "aristo-kasa",
-        "aristo-kasa-kapanislari",
-        "aristo-acik-adisyonlar",
-      ];
-
-      silinecekAnahtarlar.forEach((anahtar) => {
-        localStorage.removeItem(anahtar);
-      });
-
-      localStorage.setItem(
-        "aristo-kasa",
-        "0"
-      );
-
-      window.dispatchEvent(new Event("storage"));
-      bildirimGoster(
-        "Demo işlem kayıtları temizlendi. Ürünler, malzemeler, reçeteler ve ayarlar korundu."
-      );
-
-      window.setTimeout(() => {
-        window.location.reload();
-      }, 900);
-    } catch (hata) {
-      console.error(
-        "Demo verileri temizlenirken hata oluştu:",
-        hata
-      );
-      hataGoster(
-        "Demo verileri buluttan temizlenirken hata oluştu."
-      );
-      setTemizleniyor(false);
-    }
+    hataGoster("Toplu temizlik güvenlik kontrolü tamamlanana kadar kapalı. Tekil test kayıtlarını ilgili ekrandan silin.");
   }
 
   const kart: CSSProperties = {
@@ -764,6 +483,8 @@ export default function Yedekleme() {
         fontFamily: "Arial, sans-serif",
       }}
     >
+      <p role="status" style={{ padding: 16, color: "#92400e" }}>Yedek indirme açık. Geri yükleme ve toplu temizlik, güvenlik düzeltmesi tamamlanana kadar geçici olarak kapalıdır.</p>
+
       <style jsx global>{`
         @media (max-width: 680px) {
           .yedek-grid {
@@ -946,7 +667,7 @@ export default function Yedekleme() {
                 style={{ display: "none" }}
               />
 
-              <button type="button" onClick={dosyaSec} style={ikincilButon}>
+              <button type="button" onClick={dosyaSec} disabled={true} style={ikincilButon}>
                 📂 Yedek Dosyası Seç
               </button>
             </div>
@@ -1049,7 +770,7 @@ export default function Yedekleme() {
                 <button
                   type="button"
                   onClick={geriYukle}
-                  disabled={geriYukleniyor}
+                  disabled={true}
                   style={{
                     ...anaButon,
                     background: "#294b8f",
@@ -1064,7 +785,7 @@ export default function Yedekleme() {
                 <button
                   type="button"
                   onClick={() => setYuklenen(null)}
-                  disabled={geriYukleniyor}
+                  disabled={true}
                   style={{
                     ...ikincilButon,
                     marginTop: "9px",
@@ -1111,7 +832,7 @@ export default function Yedekleme() {
           <button
             type="button"
             onClick={demoVerileriniTemizle}
-            disabled={temizleniyor}
+            disabled={true}
             style={{
               ...anaButon,
               background: "#b91c1c",

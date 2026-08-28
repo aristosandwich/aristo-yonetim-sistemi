@@ -8,7 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 import Header from "../ui/Header";
-import { supabase } from "../lib/supabase";
+import { aristoYaz, bekleyenIslemiTamamla, hataMesaji, kurus, tutarMetni, onbellekYaz, tumKayitlariOku, SurumluKuyruk } from "../lib/aristoIslemler";
 
 type Urun = {
   id: number;
@@ -39,6 +39,7 @@ type EkranTipi =
   | "Sokak";
 
 type Adisyon = {
+  surum: number;
   id: string;
   ad: string;
   grup: "Masa" | "Dış" | "Take Away";
@@ -52,6 +53,7 @@ type Adisyon = {
 };
 
 type SatisKaydi = {
+  surum: number;
   id: number;
   islemId: number;
   satirId?: number;
@@ -74,6 +76,9 @@ type SatisKaydi = {
 };
 
 type BekleyenKayit = {
+  adisyonId?: string;
+  islemId?: number;
+  beklenenSurum?: number;
   kaynak: EkranTipi;
   baslik: string;
   platform: string;
@@ -169,6 +174,7 @@ function bosAdisyon(
   grup: Adisyon["grup"]
 ): Adisyon {
   return {
+    surum: 0,
     id,
     ad,
     grup,
@@ -265,6 +271,7 @@ function supabaseKaydiniAdisyonaCevir(
       : "Kredi Kartı";
 
   return {
+    surum: Number(kayit.surum ?? 0),
     id: String(kayit.id ?? ""),
     ad: String(kayit.ad ?? ""),
     grup,
@@ -284,31 +291,16 @@ function supabaseKaydiniAdisyonaCevir(
   };
 }
 
-function adisyonuSupabaseKaydinaCevir(
-  adisyon: Adisyon
-) {
+function adisyonuSupabaseKaydinaCevir(adisyon: Adisyon) {
   return {
-    id: adisyon.id,
-    ad: adisyon.ad,
-    grup: adisyon.grup,
-    sepet: adisyon.sepet,
-    odeme_tipi: adisyon.odemeTipi,
-    nakit_tutari: adisyon.nakitTutari,
-    kart_tutari: adisyon.kartTutari,
-    indirim: adisyon.indirim,
-    not: adisyon.not,
-    acilis_zamani: adisyon.acilisZamani ?? null,
-    updated_at: new Date().toISOString(),
+    id: adisyon.id, ad: adisyon.ad, grup: adisyon.grup, sepet: adisyon.sepet,
+    odeme_tipi: adisyon.odemeTipi, nakit_tutari: tutarMetni(adisyon.nakitTutari || "0"),
+    kart_tutari: tutarMetni(adisyon.kartTutari || "0"), indirim: tutarMetni(adisyon.indirim || "0"),
+    not: adisyon.not, beklenenSurum: adisyon.surum,
   };
 }
-
-function yerelAdisyonOnbelleginiGuncelle(
-  adisyonlar: Adisyon[]
-) {
-  localStorage.setItem(
-    "aristo-acik-adisyonlar",
-    JSON.stringify(adisyonlar)
-  );
+function yerelAdisyonOnbelleginiGuncelle(adisyonlar: Adisyon[]) {
+  onbellekYaz("aristo-acik-adisyonlar", adisyonlar);
 }
 
 function para(tutar: number) {
@@ -325,14 +317,8 @@ function yuvarla(tutar: number) {
 }
 
 function sepetToplami(sepet: SepetUrunu[]) {
-  return sepet.reduce(
-    (toplam, urun) =>
-      toplam +
-      urun.adet *
-        (Number(urun.birimFiyat || 0) +
-          Number(urun.extra || 0)),
-    0
-  );
+  return sepet.reduce((toplam, urun) => toplam + urun.adet *
+    (Math.round(Number(urun.birimFiyat || 0) * 100) + Math.round(Number(urun.extra || 0) * 100)), 0) / 100;
 }
 
 function sepetAdedi(sepet: SepetUrunu[]) {
@@ -373,6 +359,7 @@ function supabaseKaydiniSatisKaydinaCevir(
       : undefined;
 
   return {
+    surum: Number(kayit.surum ?? 1),
     id: Number(kayit.id || 0),
     islemId: Number(
       kayit.islem_id || kayit.id || 0
@@ -401,41 +388,8 @@ function supabaseKaydiniSatisKaydinaCevir(
   };
 }
 
-function satisKaydiniSupabaseKaydinaCevir(
-  kayit: SatisKaydi
-) {
-  return {
-    id: kayit.id,
-    islem_id: kayit.islemId,
-    satir_id: kayit.satirId ?? null,
-    adisyon: kayit.adisyon || "",
-    tarih: kayit.tarih,
-    urun: kayit.urun,
-    kategori: kayit.kategori,
-    platform: kayit.platform,
-    odeme_tipi: kayit.odemeTipi,
-    adet: Number(kayit.adet || 0),
-    birim_fiyat: Number(kayit.birimFiyat || 0),
-    extra: Number(kayit.extra || 0),
-    ekmek: kayit.ekmek ?? null,
-    indirim: Number(kayit.indirim || 0),
-    toplam: Number(kayit.toplam || 0),
-    nakit_tutari: Number(kayit.nakitTutari || 0),
-    kart_tutari: Number(kayit.kartTutari || 0),
-    online_tutari: Number(kayit.onlineTutari || 0),
-    not: kayit.not || "",
-  };
-}
-
-function yerelSatisOnbelleginiGuncelle(
-  satislar: SatisKaydi[]
-) {
-  localStorage.setItem(
-    "aristo-satislar",
-    JSON.stringify(satislar)
-  );
-
-  window.dispatchEvent(new Event("storage"));
+function yerelSatisOnbelleginiGuncelle(satislar: SatisKaydi[]) {
+  onbellekYaz("aristo-satislar", satislar);
 }
 
 export default function Satislar() {
@@ -516,325 +470,73 @@ export default function Satislar() {
   const [simdi, setSimdi] =
     useState(Date.now());
 
-  const adisyonKayitZamanlayicisi =
-    useRef<number | null>(null);
-
-  const bekleyenBulutAdisyonlari =
-    useRef<Adisyon[] | null>(null);
-
-  const adisyonBulutKaydiSuruyor =
-    useRef(false);
-
-  const adisyonKayitHatasiGosterildi =
-    useRef(false);
+  const [hazir, setHazir] = useState(false);
+  const [veriHatasi, setVeriHatasi] = useState("");
+  const [masaDurumu, setMasaDurumu] = useState("");
+  const [taslakHatasi, setTaslakHatasi] = useState("");
+  const gecersizTaslak = useRef(false);
+  const islemKilidi = useRef(false);
+  const duzenlenenSurum = useRef<number | undefined>(undefined);
+  const adisyonRef = useRef(adisyonlar);
+  const adisyonKayitZamanlayicisi = useRef<number | null>(null);
+  const kuyruk = useRef<SurumluKuyruk<Adisyon> | null>(null);
+  const sokakKirli = useRef(false);
+  sokakKirli.current = sokakSepeti.length > 0;
 
   useEffect(() => {
     let aktif = true;
-
-    let yerelAdisyonlar =
-      varsayilanAdisyonlar;
-
-    try {
-      const kayitliAdisyonlar: Adisyon[] =
-        JSON.parse(
-          localStorage.getItem(
-            "aristo-acik-adisyonlar"
-          ) || "[]"
-        );
-
-      if (
-        Array.isArray(kayitliAdisyonlar) &&
-        kayitliAdisyonlar.length > 0
-      ) {
-        yerelAdisyonlar =
-          adisyonlariBirlestir(
-            kayitliAdisyonlar
-          );
-
-        setAdisyonlar(
-          yerelAdisyonlar
-        );
-      }
-    } catch {
-      setAdisyonlar(
-        varsayilanAdisyonlar
-      );
-    }
-
-    async function bulutVerileriniYukle() {
-      const [
-        urunSonucu,
-        satisSonucu,
-        adisyonSonucu,
-      ] =
-        await Promise.all([
-          supabase
-            .from("urunler")
-            .select(
-              "id, ad, kategori, satis_fiyati, aktif"
-            )
-            .order("id", { ascending: true }),
-          supabase
-            .from("satislar")
-            .select(
-              "id, islem_id, satir_id, adisyon, tarih, urun, kategori, platform, odeme_tipi, adet, birim_fiyat, extra, ekmek, indirim, toplam, nakit_tutari, kart_tutari, online_tutari, not"
-            )
-            .order("islem_id", { ascending: false }),
-          supabase
-            .from("acik_adisyonlar")
-            .select(
-              "id, ad, grup, sepet, odeme_tipi, nakit_tutari, kart_tutari, indirim, not, acilis_zamani, updated_at"
-            )
-            .order("id", { ascending: true }),
+    async function yukle() {
+      try {
+        await bekleyenIslemiTamamla();
+        const [u, s, a] = await Promise.all([
+          tumKayitlariOku("urunler", "id, ad, kategori, satis_fiyati, aktif"),
+          tumKayitlariOku("satislar", "*"),
+          tumKayitlariOku("acik_adisyonlar", "id, ad, grup, sepet, odeme_tipi, nakit_tutari, kart_tutari, indirim, not, acilis_zamani, surum"),
         ]);
-
-      if (!aktif) {
-        return;
-      }
-
-      if (urunSonucu.error) {
-        console.error(
-          "Ürünler okunamadı:",
-          urunSonucu.error
-        );
-        window.alert(
-          "Ürünler buluttan okunamadı."
-        );
-      } else {
-        let bulutUrunleri: Urun[] =
-          (urunSonucu.data || []).map(
-            (kayit) => ({
-              id: Number(kayit.id),
-              ad: String(kayit.ad ?? ""),
-              kategori: String(
-                kayit.kategori ?? ""
-              ),
-              satisFiyati: Number(
-                kayit.satis_fiyati || 0
-              ),
-              aktif: Boolean(kayit.aktif),
-            })
-          );
-
-        if (bulutUrunleri.length === 0) {
-          try {
-            const yerelUrunler: Urun[] =
-              JSON.parse(
-                localStorage.getItem(
-                  "aristo-urunler"
-                ) || "[]"
-              );
-
-            if (
-              Array.isArray(yerelUrunler) &&
-              yerelUrunler.length > 0
-            ) {
-              const { error: urunAktarimHatasi } =
-                await supabase
-                  .from("urunler")
-                  .upsert(
-                    yerelUrunler.map(
-                      (urun) => ({
-                        id: Number(urun.id),
-                        ad: urun.ad,
-                        kategori: urun.kategori,
-                        satis_fiyati: Number(
-                          urun.satisFiyati || 0
-                        ),
-                        aktif:
-                          urun.aktif !== false,
-                      })
-                    ),
-                    { onConflict: "id" }
-                  );
-
-              if (urunAktarimHatasi) {
-                console.error(
-                  "Eski ürünler buluta aktarılamadı:",
-                  urunAktarimHatasi
-                );
-                window.alert(
-                  "Eski ürünler buluta aktarılamadı."
-                );
-              } else {
-                bulutUrunleri =
-                  yerelUrunler.map(
-                    (urun) => ({
-                      ...urun,
-                      aktif:
-                        urun.aktif !== false,
-                    })
-                  );
-              }
-            } else {
-              window.alert(
-                "Ürünler tablosu boş ve aktarılacak eski ürün kaydı bulunamadı."
-              );
-            }
-          } catch (hata) {
-            console.error(
-              "Eski ürünler okunamadı:",
-              hata
-            );
-          }
-        }
-
-        const aktifUrunler =
-          bulutUrunleri.filter(
-            (urun) => urun.aktif
-          );
-
-        setUrunler(aktifUrunler);
-
-        const ilkKategori =
-          kategoriSirasi.find(
-            (kategoriAdi) =>
-              aktifUrunler.some(
-                (urun) =>
-                  urun.kategori ===
-                  kategoriAdi
-              )
-          );
-
-        if (ilkKategori) {
-          setKategori(ilkKategori);
-        }
-      }
-
-      if (adisyonSonucu.error) {
-        console.error(
-          "Açık adisyonlar okunamadı:",
-          adisyonSonucu.error
-        );
-        window.alert(
-          "Açık masalar buluttan okunamadı. Açık adisyon SQL dosyasını çalıştırdığından emin ol."
-        );
-      } else {
-        let bulutAdisyonlari =
-          (adisyonSonucu.data || []).map(
-            (kayit) =>
-              supabaseKaydiniAdisyonaCevir(
-                kayit as Record<string, unknown>
-              )
-          );
-
-        if (bulutAdisyonlari.length === 0) {
-          const { error: aktarimHatasi } =
-            await supabase
-              .from("acik_adisyonlar")
-              .upsert(
-                yerelAdisyonlar.map(
-                  adisyonuSupabaseKaydinaCevir
-                ),
-                { onConflict: "id" }
-              );
-
-          if (aktarimHatasi) {
-            console.error(
-              "Açık adisyonlar buluta aktarılamadı:",
-              aktarimHatasi
-            );
-            window.alert(
-              "Mevcut açık masalar buluta aktarılamadı."
-            );
-          } else {
-            bulutAdisyonlari =
-              yerelAdisyonlar;
-          }
-        }
-
-        if (aktif) {
-          const birlestirilmis =
-            adisyonlariBirlestir(
-              bulutAdisyonlari
-            );
-
-          setAdisyonlar(
-            birlestirilmis
-          );
-          yerelAdisyonOnbelleginiGuncelle(
-            birlestirilmis
-          );
-        }
-      }
-
-      if (satisSonucu.error) {
-        console.error(
-          "Satışlar okunamadı:",
-          satisSonucu.error
-        );
-        window.alert(
-          "Satışlar buluttan okunamadı."
-        );
-        return;
-      }
-
-      let bulutSatislari: SatisKaydi[] =
-        (satisSonucu.data || []).map(
-          (kayit) =>
-            supabaseKaydiniSatisKaydinaCevir(
-              kayit as Record<string, unknown>
-            )
-        );
-
-      if (bulutSatislari.length === 0) {
-        try {
-          const yerelSatislar: SatisKaydi[] =
-            JSON.parse(
-              localStorage.getItem(
-                "aristo-satislar"
-              ) || "[]"
-            );
-
-          if (
-            Array.isArray(yerelSatislar) &&
-            yerelSatislar.length > 0
-          ) {
-            const { error: aktarimHatasi } =
-              await supabase
-                .from("satislar")
-                .upsert(
-                  yerelSatislar.map(
-                    satisKaydiniSupabaseKaydinaCevir
-                  ),
-                  { onConflict: "id" }
-                );
-
-            if (aktarimHatasi) {
-              console.error(
-                "Eski satışlar buluta aktarılamadı:",
-                aktarimHatasi
-              );
-              window.alert(
-                "Eski satışlar buluta aktarılamadı."
-              );
-              return;
-            }
-
-            bulutSatislari = yerelSatislar;
-          }
-        } catch (hata) {
-          console.error(
-            "Eski satışlar okunamadı:",
-            hata
-          );
-        }
-      }
-
-      if (!aktif) {
-        return;
-      }
-
-      setKayitlar(bulutSatislari);
-      yerelSatisOnbelleginiGuncelle(
-        bulutSatislari
-      );
+        if (!aktif) return;
+        const urunler = u.filter(k => k.aktif).map(k => ({ id: Number(k.id), ad: String(k.ad), kategori: String(k.kategori), satisFiyati: Number(k.satis_fiyati), aktif: true }));
+        setUrunler(urunler);
+        setKategori(kategoriSirasi.find(k => urunler.some(u => u.kategori === k)) || "Sandviç");
+        const masalar = adisyonlariBirlestir(a.map(supabaseKaydiniAdisyonaCevir));
+        adisyonRef.current = masalar;
+        setAdisyonlar(masalar);
+        yerelAdisyonOnbelleginiGuncelle(masalar);
+        const satislar = s.map(supabaseKaydiniSatisKaydinaCevir).sort((a,b) => b.islemId-a.islemId || a.id-b.id);
+        setKayitlar(satislar);
+        yerelSatisOnbelleginiGuncelle(satislar);
+        kuyruk.current = new SurumluKuyruk<Adisyon>(async masa => {
+          const sonuc = await aristoYaz("adisyon", adisyonuSupabaseKaydinaCevir(masa));
+          if (!sonuc.adisyon) throw new Error("Masa sonucu eksik. Sayfayı yenileyin.");
+          return supabaseKaydiniAdisyonaCevir(sonuc.adisyon);
+        }, (gonderilen, sunucu, dahaYeni) => {
+          dahaYeni = dahaYeni || adisyonRef.current.find(m => m.id === sunucu.id) !== gonderilen;
+          adisyonRef.current = adisyonRef.current.map(m => m.id !== sunucu.id ? m : dahaYeni ? { ...m, surum: sunucu.surum } : sunucu);
+          if (aktif) setAdisyonlar(adisyonRef.current);
+          yerelAdisyonOnbelleginiGuncelle(adisyonRef.current);
+        });
+        kuyruk.current.baslat(masalar);
+        setHazir(true);
+      } catch (h) { if (aktif) setVeriHatasi(hataMesaji(h)); }
     }
-
-    bulutVerileriniYukle();
-
+    void yukle();
+    const ayrilma = (e: BeforeUnloadEvent) => {
+      if (gecersizTaslak.current || kuyruk.current?.kirli || islemKilidi.current || sokakKirli.current) { e.preventDefault(); e.returnValue = ""; }
+    };
+    const linkTiklama = (e: MouseEvent) => {
+      if (!(e.target instanceof Element) || !e.target.closest("a[href]")) return;
+      if (gecersizTaslak.current || kuyruk.current?.kirli || islemKilidi.current) {
+        e.preventDefault(); e.stopPropagation();
+        window.alert("Masa kaydı tamamlanana kadar bu sayfada kalın. Hata varsa taslağınızı not edip sayfayı yenileyin.");
+      } else if (sokakKirli.current && !window.confirm("Sokak sepeti henüz satış olarak kaydedilmedi. Sayfadan ayrılırsanız taslak kaybolur. Ayrılmak istiyor musunuz?")) {
+        e.preventDefault(); e.stopPropagation();
+      }
+    };
+    window.addEventListener("beforeunload", ayrilma);
+    document.addEventListener("click", linkTiklama, true);
     return () => {
       aktif = false;
+      window.removeEventListener("beforeunload", ayrilma);
+      document.removeEventListener("click", linkTiklama, true);
     };
   }, []);
 
@@ -890,10 +592,10 @@ export default function Satislar() {
           0
         );
 
-  const genelToplam = Math.max(
+  const genelToplam = yuvarla(Math.max(
     araToplam - aktifIndirim,
     0
-  );
+  ));
 
   const gorunenKategoriler =
     useMemo(() => {
@@ -1038,82 +740,36 @@ export default function Satislar() {
     }, [kayitlar]);
 
   async function adisyonKuyrugunuKaydet() {
-    if (adisyonBulutKaydiSuruyor.current) {
-      return;
-    }
-
-    const kaydedilecek =
-      bekleyenBulutAdisyonlari.current;
-
-    if (!kaydedilecek) {
-      return;
-    }
-
-    bekleyenBulutAdisyonlari.current = null;
-    adisyonBulutKaydiSuruyor.current = true;
-
-    const { error } = await supabase
-      .from("acik_adisyonlar")
-      .upsert(
-        kaydedilecek.map(
-          adisyonuSupabaseKaydinaCevir
-        ),
-        { onConflict: "id" }
-      );
-
-    adisyonBulutKaydiSuruyor.current = false;
-
-    if (error) {
-      console.error(
-        "Açık adisyonlar kaydedilemedi:",
-        error
-      );
-
-      bekleyenBulutAdisyonlari.current =
-        bekleyenBulutAdisyonlari.current ||
-        kaydedilecek;
-
-      if (!adisyonKayitHatasiGosterildi.current) {
-        adisyonKayitHatasiGosterildi.current = true;
-        window.alert(
-          "Açık masa buluta kaydedilemedi. İnternet bağlantını kontrol edip tekrar değişiklik yap."
-        );
-      }
-    } else {
-      adisyonKayitHatasiGosterildi.current = false;
-    }
-
-    if (bekleyenBulutAdisyonlari.current) {
-      adisyonKayitZamanlayicisi.current =
-        window.setTimeout(() => {
-          adisyonKayitZamanlayicisi.current = null;
-          void adisyonKuyrugunuKaydet();
-        }, 300);
-    }
+    try {
+      await kuyruk.current?.kaydet();
+      setMasaDurumu("Masa buluta kaydedildi.");
+    } catch (h) { setVeriHatasi(hataMesaji(h)); throw h; }
   }
 
-  function adisyonlariKaydet(
-    yeniAdisyonlar: Adisyon[]
-  ) {
+  function adisyonlariKaydet(yeniAdisyonlar: Adisyon[]) {
+    if (!hazir || veriHatasi || islemKilidi.current) return;
+    const onceki = adisyonRef.current;
+    adisyonRef.current = yeniAdisyonlar;
     setAdisyonlar(yeniAdisyonlar);
-    yerelAdisyonOnbelleginiGuncelle(
-      yeniAdisyonlar
-    );
-
-    bekleyenBulutAdisyonlari.current =
-      yeniAdisyonlar;
-
-    if (adisyonKayitZamanlayicisi.current) {
-      window.clearTimeout(
-        adisyonKayitZamanlayicisi.current
-      );
+    try {
+      for (const masa of yeniAdisyonlar) {
+        adisyonuSupabaseKaydinaCevir(masa);
+        for (const u of masa.sepet) {
+          kurus(u.birimFiyat); kurus(u.extra || 0);
+          if (!Number.isInteger(u.adet) || u.adet < 1 || u.adet > 9999) throw new Error("Ürün adedi 1–9999 arasında tam sayı olmalı.");
+        }
+      }
+    } catch (h) { gecersizTaslak.current = true; setTaslakHatasi(hataMesaji(h)); return; }
+    gecersizTaslak.current = false; setTaslakHatasi("");
+    for (const masa of yeniAdisyonlar) {
+      if (masa !== onceki.find(m => m.id === masa.id)) kuyruk.current?.ekle(masa);
     }
-
-    adisyonKayitZamanlayicisi.current =
-      window.setTimeout(() => {
-        adisyonKayitZamanlayicisi.current = null;
-        void adisyonKuyrugunuKaydet();
-      }, 400);
+    setMasaDurumu("Masa kaydediliyor… Bu sayfada kalın.");
+    if (adisyonKayitZamanlayicisi.current) window.clearTimeout(adisyonKayitZamanlayicisi.current);
+    adisyonKayitZamanlayicisi.current = window.setTimeout(() => {
+      adisyonKayitZamanlayicisi.current = null;
+      void adisyonKuyrugunuKaydet().catch(() => undefined);
+    }, 400);
   }
 
   function aktifAdisyonuGuncelle(
@@ -1122,7 +778,7 @@ export default function Satislar() {
       | ((adisyon: Adisyon) => Adisyon)
   ) {
     const yeniAdisyonlar =
-      adisyonlar.map((adisyon) => {
+      adisyonRef.current.map((adisyon) => {
         if (
           adisyon.id !==
           aktifAdisyonId
@@ -1255,6 +911,10 @@ export default function Satislar() {
       Number(secimFiyat || secilenUrun.satisFiyati || 0),
       0
     );
+    try {
+      if (!Number.isInteger(adet) || adet < 1 || adet > 9999) throw new Error("Adet pozitif tam sayı olmalı.");
+      kurus(extra); kurus(satisFiyati);
+    } catch (h) { window.alert(hataMesaji(h)); return; }
     const ekmek =
       secilenUrun.kategori === "Sandviç"
         ? secimEkmek
@@ -1541,6 +1201,8 @@ export default function Satislar() {
   }
 
   function kayitOnayiAc() {
+    if (!hazir || veriHatasi || islemKilidi.current) return;
+    if (gecersizTaslak.current) { window.alert(taslakHatasi); return; }
     if (aktifSepet.length === 0) {
       alert("Sepete ürün ekle.");
       return;
@@ -1606,7 +1268,7 @@ export default function Satislar() {
         );
 
         if (
-          Math.abs(fark) > 0.01
+          !Number.isFinite(fark) || Math.round(fark * 100) !== 0
         ) {
           alert(
             fark > 0
@@ -1668,7 +1330,7 @@ export default function Satislar() {
         );
 
         if (
-          Math.abs(fark) > 0.01
+          !Number.isFinite(fark) || Math.round(fark * 100) !== 0
         ) {
           alert(
             fark > 0
@@ -1690,7 +1352,18 @@ export default function Satislar() {
 
 
 
+    try {
+      for (const urun of aktifSepet) {
+        if (!Number.isInteger(urun.adet) || urun.adet < 1 || urun.adet > 9999) throw new Error("Ürün adedi geçersiz.");
+        kurus(urun.birimFiyat); kurus(urun.extra || 0);
+      }
+      if (kurus(nakit) + kurus(kart) !== kurus(genelToplam)) throw new Error("Ödeme toplamını kontrol edin.");
+      kurus(aktifIndirim);
+    } catch (h) { window.alert(hataMesaji(h)); return; }
     setBekleyenKayit({
+      adisyonId: ekran === "Adisyonlar" ? aktifAdisyon.id : undefined,
+      islemId: ekran === "Sokak" ? duzenlenenIslemId ?? undefined : undefined,
+      beklenenSurum: ekran === "Sokak" ? duzenlenenSurum.current : undefined,
       kaynak: ekran,
       baslik,
       platform,
@@ -1707,262 +1380,42 @@ export default function Satislar() {
   }
 
   async function kaydiTamamla() {
-    if (!bekleyenKayit || kaydediliyor) {
-      return;
-    }
-
-    const islemId =
-      duzenlenenIslemId ||
-      Date.now();
-
-    const tarih =
-      new Date().toLocaleString(
-        "tr-TR"
-      );
-
-    let dagitilanNakit = 0;
-    let dagitilanKart = 0;
-
-    const bekleyenAraToplam =
-      sepetToplami(
-        bekleyenKayit.sepet
-      );
-
-    const yeniKayitlar:
-      SatisKaydi[] =
-      bekleyenKayit.sepet.map(
-        (sepetUrunu, sira) => {
-          const urunAraToplam =
-            sepetUrunu.adet *
-            (sepetUrunu.birimFiyat +
-              Number(
-                sepetUrunu.extra || 0
-              ));
-
-          const urunIndirimi =
-            bekleyenAraToplam > 0
-              ? (urunAraToplam /
-                  bekleyenAraToplam) *
-                bekleyenKayit.indirim
-              : 0;
-
-          const urunToplami =
-            yuvarla(
-              Math.max(
-                urunAraToplam -
-                  urunIndirimi,
-                0
-              )
-            );
-
-          const sonSatir =
-            sira ===
-            bekleyenKayit.sepet
-              .length -
-              1;
-
-          const oran =
-            bekleyenKayit.toplam >
-            0
-              ? urunToplami /
-                bekleyenKayit.toplam
-              : 0;
-
-          const satirNakit =
-            sonSatir
-              ? yuvarla(
-                  bekleyenKayit.nakit -
-                    dagitilanNakit
-                )
-              : yuvarla(
-                  bekleyenKayit.nakit *
-                    oran
-                );
-
-          const satirKart =
-            sonSatir
-              ? yuvarla(
-                  bekleyenKayit.kart -
-                    dagitilanKart
-                )
-              : yuvarla(
-                  bekleyenKayit.kart *
-                    oran
-                );
-
-
-
-          dagitilanNakit +=
-            satirNakit;
-
-          dagitilanKart +=
-            satirKart;
-
-          return {
-            id: islemId + sira,
-            islemId,
-            satirId:
-              sepetUrunu.satirId,
-            adisyon:
-              bekleyenKayit.kaynak ===
-              "Adisyonlar"
-                ? bekleyenKayit.baslik
-                : "",
-            tarih,
-            urun:
-              sepetUrunu.urun,
-            kategori:
-              sepetUrunu.kategori,
-            platform:
-              bekleyenKayit.platform,
-            odemeTipi:
-              bekleyenKayit.odemeTipi,
-            adet:
-              sepetUrunu.adet,
-            birimFiyat:
-              sepetUrunu.birimFiyat,
-            extra: Number(
-              sepetUrunu.extra || 0
-            ),
-            ekmek: sepetUrunu.ekmek,
-            indirim:
-              yuvarla(
-                urunIndirimi
-              ),
-            toplam: urunToplami,
-            nakitTutari:
-              satirNakit,
-            kartTutari:
-              satirKart,
-            onlineTutari: 0,
-            not:
-              bekleyenKayit.not.trim(),
-          };
-        }
-      );
-
-    const eskiKayitlarTemiz =
-      duzenlenenIslemId !== null
-        ? kayitlar.filter(
-            (kayit) =>
-              kayit.islemId !==
-              duzenlenenIslemId
-          )
-        : kayitlar;
-
-    const tumKayitlar = [
-      ...yeniKayitlar,
-      ...eskiKayitlarTemiz,
-    ];
-
+    if (!bekleyenKayit || !hazir || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
     setKaydediliyor(true);
-
-    const { error: kaydetmeHatasi } =
-      await supabase
-        .from("satislar")
-        .upsert(
-          yeniKayitlar.map(
-            satisKaydiniSupabaseKaydinaCevir
-          ),
-          { onConflict: "id" }
-        );
-
-    if (kaydetmeHatasi) {
-      console.error(
-        "Satış kaydedilemedi:",
-        kaydetmeHatasi
-      );
-      window.alert(
-        "Satış buluta kaydedilemedi. Sepet silinmedi; tekrar deneyebilirsin."
-      );
-      setKaydediliyor(false);
-      return;
-    }
-
-    if (duzenlenenIslemId !== null) {
-      const yeniSatirIdleri = new Set(
-        yeniKayitlar.map((kayit) => kayit.id)
-      );
-
-      const silinecekSatirIdleri =
-        kayitlar
-          .filter(
-            (kayit) =>
-              kayit.islemId ===
-                duzenlenenIslemId &&
-              !yeniSatirIdleri.has(kayit.id)
-          )
-          .map((kayit) => kayit.id);
-
-      if (silinecekSatirIdleri.length > 0) {
-        const { error: eskiSatirSilmeHatasi } =
-          await supabase
-            .from("satislar")
-            .delete()
-            .in("id", silinecekSatirIdleri);
-
-        if (eskiSatirSilmeHatasi) {
-          console.error(
-            "Eski satış satırları silinemedi:",
-            eskiSatirSilmeHatasi
-          );
-          window.alert(
-            "Satış güncellendi ancak eski satırlardan biri temizlenemedi. Sayfayı yenileyip kontrol et."
-          );
-          setKaydediliyor(false);
-          return;
-        }
+    try {
+      if (adisyonKayitZamanlayicisi.current) window.clearTimeout(adisyonKayitZamanlayicisi.current);
+      await adisyonKuyrugunuKaydet();
+      const b = bekleyenKayit;
+      const sonuc = await aristoYaz("satis", {
+        sepet: b.sepet, indirim: tutarMetni(b.indirim), nakit: tutarMetni(b.nakit),
+        kart: tutarMetni(b.kart), toplam: tutarMetni(b.toplam), not: b.not.trim(),
+        islemId: b.islemId, beklenenSurum: b.beklenenSurum,
+        adisyonId: b.adisyonId, adisyonSurum: b.adisyonId ? kuyruk.current?.surum(b.adisyonId) : undefined,
+      });
+      if (!sonuc.satislar || !sonuc.islemId) throw new Error("Satış sonucu eksik. Yeni kayıt girmeden sayfayı yenileyin.");
+      const yeni = sonuc.satislar.map(supabaseKaydiniSatisKaydinaCevir);
+      const tum = [...yeni, ...kayitlar.filter(k => k.islemId !== sonuc.islemId)];
+      setKayitlar(tum);
+      yerelSatisOnbelleginiGuncelle(tum);
+      if (sonuc.adisyon) {
+        const kapali = supabaseKaydiniAdisyonaCevir(sonuc.adisyon);
+        kuyruk.current?.onayla(kapali);
+        adisyonRef.current = adisyonRef.current.map(m => m.id === kapali.id ? kapali : m);
+        setAdisyonlar(adisyonRef.current);
+        yerelAdisyonOnbelleginiGuncelle(adisyonRef.current);
       }
-    }
-
-    setKayitlar(tumKayitlar);
-    yerelSatisOnbelleginiGuncelle(
-      tumKayitlar
-    );
-
-    if (
-      bekleyenKayit.kaynak ===
-      "Adisyonlar"
-    ) {
-      aktifAdisyonuGuncelle(
-        bosAdisyon(
-          aktifAdisyon.id,
-          aktifAdisyon.ad,
-          aktifAdisyon.grup
-        )
-      );
-    }
-
-    if (
-      bekleyenKayit.kaynak ===
-      "Sokak"
-    ) {
-      setSokakSepeti([]);
-      setSokakOdemeTipi(
-        "Kredi Kartı"
-      );
-      setSokakNakit("0");
-      setSokakKart("0");
-      setSokakIndirim("0");
-      setSokakNot("");
-    }
-
-    const duzenlendi =
-      duzenlenenIslemId !== null;
-
-    setDuzenlenenIslemId(null);
-    setBekleyenKayit(null);
-    setKaydediliyor(false);
-
-    setMesaj(
-      duzenlendi
-        ? "Kayıt güncellendi."
-        : "Ödeme alındı."
-    );
-
-    window.setTimeout(() => {
-      setMesaj("");
-    }, 2000);
+      if (b.kaynak === "Sokak") {
+        setSokakSepeti([]); setSokakOdemeTipi("Kredi Kartı");
+        setSokakNakit("0"); setSokakKart("0"); setSokakIndirim("0"); setSokakNot("");
+        sokakKirli.current = false;
+      }
+      if (b.kaynak === "Sokak") { setDuzenlenenIslemId(null); duzenlenenSurum.current = undefined; }
+      setBekleyenKayit(null);
+      setMesaj(b.islemId ? "Satış ve kasa güncellendi." : "Satış, masa ve kasa kaydedildi.");
+      window.setTimeout(() => setMesaj(""), 3000);
+    } catch (h) { setVeriHatasi(hataMesaji(h)); }
+    finally { islemKilidi.current = false; setKaydediliyor(false); }
   }
 
   function satisiDuzenle(
@@ -1982,6 +1435,7 @@ export default function Satislar() {
 
     const ilk =
       islemKayitlari[0];
+    duzenlenenSurum.current = Math.max(...islemKayitlari.map(k => k.surum));
 
     const duzenlenecekSepet =
       islemKayitlari.map(
@@ -2098,53 +1552,22 @@ export default function Satislar() {
     });
   }
 
-  async function satisiIptalEt(
-    islemId: number
-  ) {
-    const onay =
-      window.confirm(
-        "Bu satış kaydı iptal edilsin mi?"
-      );
-
-    if (!onay) {
-      return;
-    }
-
-    const ikinciOnay =
-      window.confirm(
-        "Emin misin? Bu satış raporlardan da kaldırılacak."
-      );
-
-    if (!ikinciOnay) {
-      return;
-    }
-
-    const yeniKayitlar =
-      kayitlar.filter(
-        (kayit) =>
-          kayit.islemId !== islemId
-      );
-
-    const { error } = await supabase
-      .from("satislar")
-      .delete()
-      .eq("islem_id", islemId);
-
-    if (error) {
-      console.error(
-        "Satış iptal edilemedi:",
-        error
-      );
-      window.alert(
-        "Satış buluttan silinemedi. Kayıt korunuyor."
-      );
-      return;
-    }
-
-    setKayitlar(yeniKayitlar);
-    yerelSatisOnbelleginiGuncelle(
-      yeniKayitlar
-    );
+  async function satisiIptalEt(islemId: number) {
+    if (!hazir || veriHatasi || islemKilidi.current) return;
+    if (!window.confirm("Bu satış iptal edilsin mi? Nakit payı kasadan düşülecek.")) return;
+    if (!window.confirm("Emin misin? Satış raporlardan da kaldırılacak.")) return;
+    const satirlar = kayitlar.filter(k => k.islemId === islemId);
+    if (!satirlar.length) return;
+    islemKilidi.current = true; setKaydediliyor(true);
+    try {
+      await adisyonKuyrugunuKaydet();
+      await aristoYaz("satis_sil", { islemId, beklenenSurum: Math.max(...satirlar.map(k => k.surum)) });
+      const yeni = kayitlar.filter(k => k.islemId !== islemId);
+      setKayitlar(yeni); yerelSatisOnbelleginiGuncelle(yeni);
+      if (duzenlenenIslemId === islemId) { setDuzenlenenIslemId(null); setSokakSepeti([]); }
+      setMesaj("Satış iptal edildi; kasa düzeltildi.");
+    } catch (h) { setVeriHatasi(hataMesaji(h)); }
+    finally { islemKilidi.current = false; setKaydediliyor(false); }
   }
 
   function aktifSepetiTemizle() {
@@ -2163,7 +1586,9 @@ export default function Satislar() {
       return;
     }
 
-    aktifSepetiGuncelle([]);
+    if (ekran === "Adisyonlar") {
+      aktifAdisyonuGuncelle({ ...bosAdisyon(aktifAdisyon.id, aktifAdisyon.ad, aktifAdisyon.grup), surum: aktifAdisyon.surum });
+    } else { aktifSepetiGuncelle([]); }
 
     if (ekran === "Sokak") {
       setSokakIndirim("0");
@@ -2864,6 +2289,8 @@ export default function Satislar() {
       ? aktifAdisyon.odemeTipi
       : sokakOdemeTipi;
 
+  if (!hazir) return <main style={{ padding: 30 }}><Header /><p role="status">{veriHatasi || "Güncel kayıtlar buluttan okunuyor…"}</p>{veriHatasi && <button onClick={() => window.location.reload()}>Yeniden yükle</button>}</main>;
+
   return (
     <main
       className="satis-mobil-main"
@@ -2877,6 +2304,12 @@ export default function Satislar() {
           "Arial, sans-serif",
       }}
     >
+      <div role="status" style={{ padding: "8px 16px", color: veriHatasi ? "#b91c1c" : "#174d38" }}>
+        {veriHatasi || taslakHatasi || masaDurumu}
+        {veriHatasi && <><p>Taslağınız aşağıda duruyor. Çakışmada buluttaki kayıt ezilmez; gerekiyorsa taslağı not edip güncel kaydı yükleyin.</p><button onClick={() => window.location.reload()}>Güncel kayıtları yükle</button></>}
+      </div>
+      <fieldset disabled={kaydediliyor || !!veriHatasi} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+
       <style jsx global>{`
         html, body {
           max-width: 100%;
@@ -4833,6 +4266,7 @@ export default function Satislar() {
           ✅ {mesaj}
         </div>
       )}
+      </fieldset>
     </main>
   );
 }
