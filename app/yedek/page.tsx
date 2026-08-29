@@ -45,6 +45,8 @@ type YuklenenYedek = {
   yedek: YedekDosyasi;
 };
 
+type GuvenlikYedegi = { karsilastirma: string };
+
 const ARISTO_ON_EKI = "aristo-";
 
 function tarihDosyaAdi() {
@@ -181,6 +183,21 @@ function yedekGecerliMi(deger: unknown): deger is YedekDosyasi {
   );
 }
 
+function kayitToplami(tablolar: Record<TabloAdi, TabloKaydi[]>) {
+  return Object.values(tablolar).reduce((toplam, kayitlar) => toplam + kayitlar.length, 0);
+}
+
+function yedekIndirmeBaglantisi(yedek: YedekDosyasi, onEk: string) {
+  const blob = new Blob([JSON.stringify(yedek, null, 2)], { type: "application/json;charset=utf-8" });
+  const adres = URL.createObjectURL(blob);
+  const baglanti = document.createElement("a");
+  baglanti.href = adres;
+  baglanti.download = `${onEk}_${tarihDosyaAdi()}.json`;
+  document.body.appendChild(baglanti); baglanti.click(); baglanti.remove();
+  URL.revokeObjectURL(adres);
+  return blob.size;
+}
+
 export default function Yedekleme() {
   const dosyaSecici = useRef<HTMLInputElement>(null);
 
@@ -188,6 +205,7 @@ export default function Yedekleme() {
   const [mesaj, setMesaj] = useState("");
   const [hata, setHata] = useState("");
   const [geriYukleniyor, setGeriYukleniyor] = useState(false);
+  const [guvenlikYedegi, setGuvenlikYedegi] = useState<GuvenlikYedegi | null>(null);
   const [yedekHazirlaniyor, setYedekHazirlaniyor] =
     useState(false);
   const [temizleniyor, setTemizleniyor] =
@@ -214,12 +232,7 @@ export default function Yedekleme() {
         const yerelVeriler =
           aristoVerileriniOku();
 
-        const kayitSayisi =
-          Object.values(tablolar).reduce(
-            (toplam, kayitlar) =>
-              toplam + kayitlar.length,
-            0
-          );
+        const kayitSayisi = kayitToplami(tablolar);
 
         const metin = JSON.stringify({
           tablolar,
@@ -287,12 +300,7 @@ export default function Yedekleme() {
       const yerelVeriler =
         aristoVerileriniOku();
 
-      const kayitSayisi =
-        Object.values(tablolar).reduce(
-          (toplam, kayitlar) =>
-            toplam + kayitlar.length,
-          0
-        );
+      const kayitSayisi = kayitToplami(tablolar);
 
       if (kayitSayisi === 0) {
         const devam = window.confirm(
@@ -307,32 +315,19 @@ export default function Yedekleme() {
 
       const yedek: YedekDosyasi = {
         uygulama: "Aristo Yönetim",
-        surum: "4.2-supabase",
+        surum: "4.3-supabase",
         olusturmaZamani: new Date().toISOString(),
         kayitSayisi,
         tablolar,
         yerelVeriler,
       };
 
-      const blob = new Blob([JSON.stringify(yedek, null, 2)], {
-        type: "application/json;charset=utf-8",
-      });
-
-      const adres = URL.createObjectURL(blob);
-      const baglanti = document.createElement("a");
-
-      baglanti.href = adres;
-      baglanti.download = `aristo-yedek_${tarihDosyaAdi()}.json`;
-      document.body.appendChild(baglanti);
-      baglanti.click();
-      baglanti.remove();
-
-      URL.revokeObjectURL(adres);
+      const boyut = yedekIndirmeBaglantisi(yedek, "aristo-yedek");
 
       setMevcutOzet({
         tabloSayisi: YEDEK_TABLOLARI.length,
         kayitSayisi,
-        boyut: blob.size,
+        boyut,
         yukleniyor: false,
       });
 
@@ -381,6 +376,11 @@ export default function Yedekleme() {
         return;
       }
 
+      if (dosya.size > 20 * 1024 * 1024 || !Number.isFinite(Date.parse(veri.olusturmaZamani))) {
+        hataGoster("Yedek dosyası çok büyük veya oluşturulma tarihi geçersiz.");
+        setYuklenen(null); return;
+      }
+
       if (!Array.isArray(veri.tablolar.acik_adisyonlar)) {
         veri.tablolar.acik_adisyonlar = [];
       }
@@ -418,10 +418,26 @@ export default function Yedekleme() {
         return;
       }
 
+
+      const gercekToplam = kayitToplami(veri.tablolar);
+      const kimlikSorunu = YEDEK_TABLOLARI.some((tablo) => {
+        const kimlikler = new Set<string>();
+        return veri.tablolar[tablo].some((kayit) => {
+          const id = String(kayit.id ?? "");
+          if (!id || kimlikler.has(id)) return true;
+          kimlikler.add(id); return false;
+        });
+      });
+      if (gercekToplam !== veri.kayitSayisi || kimlikSorunu) {
+        hataGoster("Yedekteki kayıt toplamı veya kayıt numaraları doğrulanamadı.");
+        setYuklenen(null); return;
+      }
+
       setYuklenen({
         dosyaAdi: dosya.name,
         yedek: veri,
       });
+      setGuvenlikYedegi(null);
 
       bildirimGoster("Yedek dosyası okundu. Geri yüklemeden önce özeti kontrol et.");
     } catch {
@@ -431,7 +447,47 @@ export default function Yedekleme() {
   }
 
   async function geriYukle() {
-    hataGoster("Geri yükleme güvenlik kontrolü tamamlanana kadar kapalı. Yedek indirme kullanılabilir.");
+    if (!yuklenen || !guvenlikYedegi || geriYukleniyor) return;
+    const onay = window.prompt('Devam etmek için GERI YUKLE yaz:');
+    if (onay !== "GERI YUKLE") { hataGoster("Geri yükleme iptal edildi."); return; }
+    setGeriYukleniyor(true); setHata("");
+    try {
+      const guncelTablolar = await bulutVerileriniOku();
+      if (JSON.stringify(guncelTablolar) !== guvenlikYedegi.karsilastirma) {
+        throw new Error("Güvenlik yedeğinden sonra bulut verileri değişti. Yeniden güvenlik yedeği alın.");
+      }
+      const { data, error } = await supabase.rpc("aristo_yedek_geri_yukle_v1", { p_yedek: yuklenen.yedek.tablolar });
+      if (error) throw error;
+      if (!data || data.basarili !== true || !Number.isFinite(Number(data.toplam))) {
+        throw new Error("Sunucunun geri yükleme sonucu doğrulanamadı.");
+      }
+      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+        const anahtar = localStorage.key(i);
+        if (anahtar?.startsWith(ARISTO_ON_EKI)) localStorage.removeItem(anahtar);
+      }
+      setYuklenen(null); setGuvenlikYedegi(null);
+      bildirimGoster(`${Number(data.toplam)} kayıt güvenli şekilde birleştirildi. Sayfa yenileniyor.`);
+      window.setTimeout(() => window.location.reload(), 1200);
+    } catch (h) {
+      hataGoster((h instanceof Error ? h.message : "Geri yükleme tamamlanamadı.") + " Hiçbir işlemi tekrar etmeden kontrol edin.");
+    } finally { setGeriYukleniyor(false); }
+  }
+
+  async function guvenlikYedegiIndir() {
+    if (!yuklenen || geriYukleniyor) return;
+    setGeriYukleniyor(true); setHata("");
+    try {
+      const tablolar = await bulutVerileriniOku();
+      const yedek: YedekDosyasi = {
+        uygulama: "Aristo Yönetim", surum: "4.3-geri-yukleme-oncesi",
+        olusturmaZamani: new Date().toISOString(), kayitSayisi: kayitToplami(tablolar),
+        tablolar, yerelVeriler: aristoVerileriniOku(),
+      };
+      yedekIndirmeBaglantisi(yedek, "aristo-geri-yukleme-oncesi");
+      setGuvenlikYedegi({ karsilastirma: JSON.stringify(tablolar) });
+      bildirimGoster("Güncel güvenlik yedeği indirildi. Şimdi geri yüklemeyi onaylayabilirsin.");
+    } catch { hataGoster("Güncel güvenlik yedeği alınamadı; geri yükleme açılmadı."); }
+    finally { setGeriYukleniyor(false); }
   }
 
   async function demoVerileriniTemizle() {
@@ -483,7 +539,7 @@ export default function Yedekleme() {
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <p role="status" style={{ padding: 16, color: "#92400e" }}>Yedek indirme açık. Geri yükleme ve toplu temizlik, güvenlik düzeltmesi tamamlanana kadar geçici olarak kapalıdır.</p>
+      <p role="status" style={{ padding: 16, color: "#174d38" }}>Yedek indirme ve silmeden birleştiren kontrollü geri yükleme açıktır. Toplu demo temizliği kapalıdır.</p>
 
       <style jsx global>{`
         @media (max-width: 680px) {
@@ -667,7 +723,7 @@ export default function Yedekleme() {
                 style={{ display: "none" }}
               />
 
-              <button type="button" onClick={dosyaSec} disabled={true} style={ikincilButon}>
+              <button type="button" onClick={dosyaSec} disabled={geriYukleniyor} style={ikincilButon}>
                 📂 Yedek Dosyası Seç
               </button>
             </div>
@@ -764,28 +820,34 @@ export default function Yedekleme() {
                     fontWeight: 700,
                   }}
                 >
-                  Geri yükleme mevcut Supabase kayıtlarının üzerine yazacaktır.
+                  Güvenli birleştirme aynı numaralı kayıtları yedekteki hâliyle günceller ve eksikleri ekler. Yedekte olmayan mevcut kayıtları silmez.
                 </div>
+
+                <button type="button" onClick={guvenlikYedegiIndir}
+                  disabled={geriYukleniyor}
+                  style={{ ...ikincilButon, marginBottom: "9px" }}>
+                  {guvenlikYedegi ? "✅ Güncel Güvenlik Yedeği Alındı" : "1. Güncel Güvenlik Yedeğini İndir"}
+                </button>
 
                 <button
                   type="button"
                   onClick={geriYukle}
-                  disabled={true}
+                  disabled={geriYukleniyor || !guvenlikYedegi}
                   style={{
                     ...anaButon,
                     background: "#294b8f",
-                    opacity: geriYukleniyor ? 0.55 : 1,
+                    opacity: geriYukleniyor || !guvenlikYedegi ? 0.55 : 1,
                   }}
                 >
                   {geriYukleniyor
                     ? "Yedek Geri Yükleniyor..."
-                    : "♻️ Seçili Yedeği Geri Yükle"}
+                    : "2. Seçili Yedeği Güvenli Birleştir"}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setYuklenen(null)}
-                  disabled={true}
+                  disabled={geriYukleniyor}
                   style={{
                     ...ikincilButon,
                     marginTop: "9px",
@@ -869,9 +931,9 @@ export default function Yedekleme() {
           >
             Veriler artık Supabase’de bulutta tutulur. Ek güvenlik için düzenli
             olarak tam JSON yedeği indirip Google Drive’da veya işletme
-            e-postasında sakla. Gerektiğinde bu sayfadan seçerek bütün tabloları
-            geri yükleyebilirsin. Geri yükleme işlemi yönetici şifresi olmadan
-            çalışmaz.
+            e-postasında sakla. Gerektiğinde bu sayfadan seçerek tabloları
+            silmeden birleştirebilirsin. İşlem güncel güvenlik yedeği ve yazılı
+            onay olmadan çalışmaz; bir tabloda hata olursa sunucu hepsini geri alır.
           </p>
         </div>
       </div>
