@@ -5,11 +5,14 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
 import Header from "../ui/Header";
 import { supabase } from "../lib/supabase";
+import { tumKayitlariOku, hataMesaji } from "../lib/aristoIslemler";
+import { koruyarakOnbellekYaz } from "../lib/bulutOnbellegi";
 
 type Platform =
   | "GetirYemek"
@@ -92,12 +95,8 @@ function tahsilatKaydiniSupabaseKaydinaCevir(
 function yerelTahsilatOnbelleginiGuncelle(
   tahsilatlar: TahsilatKaydi[]
 ) {
-  localStorage.setItem(
-    "aristo-tahsilatlar",
-    JSON.stringify(tahsilatlar)
-  );
+  koruyarakOnbellekYaz("aristo-tahsilatlar", tahsilatlar);
 
-  window.dispatchEvent(new Event("storage"));
 }
 
 export default function Tahsilatlar() {
@@ -129,110 +128,40 @@ export default function Tahsilatlar() {
 
   const [mesaj, setMesaj] = useState("");
 
+  const [hazir, setHazir] = useState(false);
+  const [veriHatasi, setVeriHatasi] = useState("");
+  const duzenlenenAsil = useRef<TahsilatKaydi | null>(null);
+  const hazirRef = useRef(false);
+  const islemKilidi = useRef(false);
+  const okumaNo = useRef(0);
+
   useEffect(() => {
     let aktif = true;
-
-    async function tahsilatlariYukle() {
-      const { data, error } = await supabase
-        .from("tahsilatlar")
-        .select(
-          "id, tarih, platform, donem, tutar"
-        )
-        .order("tarih", { ascending: false });
-
-      if (!aktif) {
-        return;
-      }
-
-      if (error) {
-        console.error(
-          "Tahsilatlar okunamadı:",
-          error
-        );
-        window.alert(
-          "Tahsilatlar buluttan okunamadı."
-        );
-        return;
-      }
-
-      let bulutTahsilatlari: TahsilatKaydi[] =
-        (data || []).map((kayit) =>
-          supabaseKaydiniTahsilatKaydinaCevir(
-            kayit as Record<string, unknown>
-          )
-        );
-
-      if (bulutTahsilatlari.length === 0) {
-        try {
-          const eskiKayitlar: TahsilatKaydi[] =
-            JSON.parse(
-              localStorage.getItem(
-                "aristo-tahsilatlar"
-              ) || "[]"
-            );
-
-          const duzeltilmisKayitlar =
-            Array.isArray(eskiKayitlar)
-              ? eskiKayitlar.map(
-                  (kayit) => ({
-                    ...kayit,
-                    tarih:
-                      kayit.tarih ||
-                      new Date(
-                        kayit.id
-                      ).toISOString(),
-                  })
-                )
-              : [];
-
-          if (duzeltilmisKayitlar.length > 0) {
-            const { error: aktarimHatasi } =
-              await supabase
-                .from("tahsilatlar")
-                .upsert(
-                  duzeltilmisKayitlar.map(
-                    tahsilatKaydiniSupabaseKaydinaCevir
-                  ),
-                  { onConflict: "id" }
-                );
-
-            if (aktarimHatasi) {
-              console.error(
-                "Eski tahsilatlar buluta aktarılamadı:",
-                aktarimHatasi
-              );
-              window.alert(
-                "Eski tahsilatlar buluta aktarılamadı."
-              );
-              return;
-            }
-
-            bulutTahsilatlari =
-              duzeltilmisKayitlar;
-          }
-        } catch (hata) {
-          console.error(
-            "Eski tahsilatlar okunamadı:",
-            hata
-          );
+    async function buluttanYukle() {
+      if (islemKilidi.current) return;
+      const sira = ++okumaNo.current;
+      hazirRef.current = false;
+      setHazir(false);
+      try {
+        const bulutKayitlari = (await tumKayitlariOku("tahsilatlar", "id, tarih, platform, donem, tutar"))
+          .sort((a, b) => Number(b.id) - Number(a.id));
+        if (!aktif || sira !== okumaNo.current) return;
+      const bulutTahsilatlari = bulutKayitlari.map(supabaseKaydiniTahsilatKaydinaCevir);
+      setKayitlar(bulutTahsilatlari);
+      yerelTahsilatOnbelleginiGuncelle(bulutTahsilatlari);
+        hazirRef.current = true;
+        setHazir(true);
+        setVeriHatasi("");
+      } catch (h) {
+        if (aktif && sira === okumaNo.current) {
+          setVeriHatasi("Bulut kayıtları okunamadı: " + hataMesaji(h));
         }
       }
-
-      if (!aktif) {
-        return;
-      }
-
-      setKayitlar(bulutTahsilatlari);
-      yerelTahsilatOnbelleginiGuncelle(
-        bulutTahsilatlari
-      );
     }
-
-    tahsilatlariYukle();
-
-    return () => {
-      aktif = false;
-    };
+    void buluttanYukle();
+    const odaklaninca = () => { void buluttanYukle(); };
+    window.addEventListener("focus", odaklaninca);
+    return () => { aktif = false; window.removeEventListener("focus", odaklaninca); };
   }, []);
 
   function bildirimGoster(metin: string) {
@@ -248,16 +177,22 @@ export default function Tahsilatlar() {
     setDonem("");
     setTutar("");
     setDuzenlenenId(null);
+    duzenlenenAsil.current = null;
   }
 
   async function kaydet() {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     if (kaydediliyor) {
       return;
     }
 
     const netTutar = Number(tutar);
 
-    if (netTutar <= 0) {
+    if (!Number.isFinite(netTutar) || netTutar <= 0) {
       alert("Net yatan tutarı gir.");
       return;
     }
@@ -282,26 +217,21 @@ export default function Tahsilatlar() {
 
     setKaydediliyor(true);
 
-    const { error } = await supabase
-      .from("tahsilatlar")
-      .upsert(
-        tahsilatKaydiniSupabaseKaydinaCevir(
-          kaydedilecekKayit
-        ),
-        { onConflict: "id" }
-      );
-
-    if (error) {
-      console.error(
-        "Tahsilat kaydedilemedi:",
-        error
-      );
-      window.alert(
-        "Tahsilat buluta kaydedilemedi. Form korunuyor; tekrar deneyebilirsin."
-      );
-      setKaydediliyor(false);
-      return;
+    const hamKayit = tahsilatKaydiniSupabaseKaydinaCevir(kaydedilecekKayit);
+    let sorgu;
+    if (duzenlenenId !== null) {
+      const asil = duzenlenenAsil.current;
+      if (!asil || asil.id !== duzenlenenId) throw new Error("Düzenlenecek tahsilatı yeniden seçin.");
+      // Silinmiş kaydı upsert ile yeniden oluşturma. Eski form yeni değeri ezmesin.
+      sorgu = supabase.from("tahsilatlar").update(hamKayit).eq("id", asil.id)
+        .eq("tutar", asil.tutar).eq("platform", asil.platform).eq("donem", asil.donem);
+    } else {
+      sorgu = supabase.from("tahsilatlar").insert(hamKayit);
     }
+    const { data: kaydedilen, error } = await sorgu.select("id").single();
+
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const duzenlendi =
       duzenlenenId !== null;
@@ -326,6 +256,14 @@ export default function Tahsilatlar() {
         ? "Tahsilat güncellendi."
         : "Net platform tahsilatı kaydedildi."
     );
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   function kaydiDuzenle(
@@ -335,6 +273,7 @@ export default function Tahsilatlar() {
     setDonem(kayit.donem);
     setTutar(String(kayit.tutar));
     setDuzenlenenId(kayit.id);
+    duzenlenenAsil.current = { ...kayit };
 
     window.scrollTo({
       top: 0,
@@ -343,6 +282,11 @@ export default function Tahsilatlar() {
   }
 
   async function kaydiSil(id: number) {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     const onay = window.confirm(
       "Bu tahsilat kaydı silinsin mi?"
     );
@@ -359,21 +303,13 @@ export default function Tahsilatlar() {
       (kayit) => kayit.id !== id
     );
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("tahsilatlar")
       .delete()
-      .eq("id", id);
+      .eq("id", id).select("id").single();
 
-    if (error) {
-      console.error(
-        "Tahsilat silinemedi:",
-        error
-      );
-      window.alert(
-        "Tahsilat buluttan silinemedi. Kayıt korunuyor."
-      );
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     setKayitlar(yeniKayitlar);
     yerelTahsilatOnbelleginiGuncelle(
@@ -387,6 +323,14 @@ export default function Tahsilatlar() {
     bildirimGoster(
       "Tahsilat kaydı silindi."
     );
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   function filtreyiTemizle() {
@@ -531,6 +475,12 @@ export default function Tahsilatlar() {
           "Arial, sans-serif",
       }}
     >
+      <div role="status" style={{ marginBottom: 12, color: veriHatasi ? "#b91c1c" : "#174d38" }}>
+        {veriHatasi || (!hazir ? "Güncel kayıtlar buluttan okunuyor…" : "")}
+        {veriHatasi && <button onClick={() => window.location.reload()}>Güncel kayıtları yükle</button>}
+      </div>
+      <fieldset disabled={!hazir || kaydediliyor || !!veriHatasi} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+
       <div
         style={{
           maxWidth: "980px",
@@ -1076,6 +1026,7 @@ export default function Tahsilatlar() {
           ✅ {mesaj}
         </div>
       )}
+      </fieldset>
     </main>
   );
 }

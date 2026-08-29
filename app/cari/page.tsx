@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { tumKayitlariOku, hataMesaji } from "../lib/aristoIslemler";
+import { koruyarakOnbellekYaz } from "../lib/bulutOnbellegi";
 
 type CariKaydi = {
   id: number;
@@ -16,10 +18,7 @@ type CariKaydi = {
 function yerelCariOnbelleginiGuncelle(
   kayitlar: CariKaydi[]
 ) {
-  localStorage.setItem(
-    "aristo-cari",
-    JSON.stringify(kayitlar)
-  );
+  koruyarakOnbellekYaz("aristo-cari", kayitlar);
 }
 
 export default function Cari() {
@@ -35,89 +34,23 @@ export default function Cari() {
   const [kaydediliyor, setKaydediliyor] =
     useState(false);
 
+  const [hazir, setHazir] = useState(false);
+  const [veriHatasi, setVeriHatasi] = useState("");
+  const hazirRef = useRef(false);
+  const islemKilidi = useRef(false);
+  const okumaNo = useRef(0);
+
   useEffect(() => {
     let aktif = true;
-
-    async function cariKayitlariniYukle() {
-      const { data, error } = await supabase
-        .from("cari")
-        .select(
-          "id, firma, tip, tutar, aciklama, tarih"
-        )
-        .order("id", { ascending: false });
-
-      if (!aktif) {
-        return;
-      }
-
-      if (error) {
-        console.error(
-          "Cari kayıtları okunamadı:",
-          error
-        );
-        window.alert(
-          "Cari kayıtları buluttan okunamadı."
-        );
-        return;
-      }
-
-      let bulutKayitlari = data || [];
-
-      if (bulutKayitlari.length === 0) {
-        try {
-          const eskiKayitlar: CariKaydi[] =
-            JSON.parse(
-              localStorage.getItem(
-                "aristo-cari"
-              ) || "[]"
-            );
-
-          if (
-            Array.isArray(eskiKayitlar) &&
-            eskiKayitlar.length > 0
-          ) {
-            const { data: aktarilanlar, error: aktarimHatasi } =
-              await supabase
-                .from("cari")
-                .upsert(
-                  eskiKayitlar.map((kayit) => ({
-                    id: Number(kayit.id),
-                    firma: kayit.firma,
-                    tip: kayit.tip,
-                    tutar: Number(kayit.tutar || 0),
-                    aciklama: kayit.aciklama,
-                    tarih: kayit.tarih,
-                  })),
-                  { onConflict: "id" }
-                )
-                .select(
-                  "id, firma, tip, tutar, aciklama, tarih"
-                );
-
-            if (!aktif) {
-              return;
-            }
-
-            if (aktarimHatasi) {
-              console.error(
-                "Eski cari kayıtları aktarılamadı:",
-                aktarimHatasi
-              );
-              window.alert(
-                "Eski cari kayıtları buluta aktarılamadı."
-              );
-            } else {
-              bulutKayitlari = aktarilanlar || [];
-            }
-          }
-        } catch (hata) {
-          console.error(
-            "Eski cari kayıtları okunamadı:",
-            hata
-          );
-        }
-      }
-
+    async function buluttanYukle() {
+      if (islemKilidi.current) return;
+      const sira = ++okumaNo.current;
+      hazirRef.current = false;
+      setHazir(false);
+      try {
+        const bulutKayitlari = (await tumKayitlariOku("cari", "id, firma, tip, tutar, aciklama, tarih"))
+          .sort((a, b) => Number(b.id) - Number(a.id));
+        if (!aktif || sira !== okumaNo.current) return;
       const yeniKayitlar: CariKaydi[] =
         bulutKayitlari.map((kayit) => ({
           id: Number(kayit.id || 0),
@@ -135,26 +68,19 @@ export default function Cari() {
       yerelCariOnbelleginiGuncelle(
         yeniKayitlar
       );
+        hazirRef.current = true;
+        setHazir(true);
+        setVeriHatasi("");
+      } catch (h) {
+        if (aktif && sira === okumaNo.current) {
+          setVeriHatasi("Bulut kayıtları okunamadı: " + hataMesaji(h));
+        }
+      }
     }
-
-    function odaklaninca() {
-      void cariKayitlariniYukle();
-    }
-
-    void cariKayitlariniYukle();
-    window.addEventListener(
-      "focus",
-      odaklaninca
-    );
-
-    return () => {
-      aktif = false;
-
-      window.removeEventListener(
-        "focus",
-        odaklaninca
-      );
-    };
+    void buluttanYukle();
+    const odaklaninca = () => { void buluttanYukle(); };
+    window.addEventListener("focus", odaklaninca);
+    return () => { aktif = false; window.removeEventListener("focus", odaklaninca); };
   }, []);
 
   function formuTemizle() {
@@ -165,6 +91,11 @@ export default function Cari() {
   }
 
   async function kaydet() {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     const cariTutari = Number(tutar);
 
     if (!firma.trim()) {
@@ -192,7 +123,7 @@ export default function Cari() {
 
     setKaydediliyor(true);
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("cari")
       .insert({
         id: yeniKayit.id,
@@ -201,19 +132,10 @@ export default function Cari() {
         tutar: yeniKayit.tutar,
         aciklama: yeniKayit.aciklama,
         tarih: yeniKayit.tarih,
-      });
+      }).select("id").single();
 
-    if (error) {
-      console.error(
-        "Cari kayıt kaydedilemedi:",
-        error
-      );
-      window.alert(
-        "Cari kayıt buluta kaydedilemedi."
-      );
-      setKaydediliyor(false);
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const yeniListe = [yeniKayit, ...kayitlar];
 
@@ -225,30 +147,35 @@ export default function Cari() {
     setKaydediliyor(false);
 
     alert("Cari kayıt eklendi.");
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   async function sil(id: number) {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     const onay = window.confirm(
       "Bu cari hareketi silinsin mi?"
     );
 
     if (!onay) return;
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("cari")
       .delete()
-      .eq("id", id);
+      .eq("id", id).select("id").single();
 
-    if (error) {
-      console.error(
-        "Cari kayıt silinemedi:",
-        error
-      );
-      window.alert(
-        "Cari kayıt buluttan silinemedi."
-      );
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const yeniListe = kayitlar.filter(
       (kayit) => kayit.id !== id
@@ -258,6 +185,14 @@ export default function Cari() {
     yerelCariOnbelleginiGuncelle(
       yeniListe
     );
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   const toplamBorc = kayitlar
@@ -394,6 +329,12 @@ export default function Cari() {
         fontFamily: "Arial, sans-serif",
       }}
     >
+      <div role="status" style={{ marginBottom: 12, color: veriHatasi ? "#b91c1c" : "#174d38" }}>
+        {veriHatasi || (!hazir ? "Güncel kayıtlar buluttan okunuyor…" : "")}
+        {veriHatasi && <button onClick={() => window.location.reload()}>Güncel kayıtları yükle</button>}
+      </div>
+      <fieldset disabled={!hazir || kaydediliyor || !!veriHatasi} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+
       <div
         style={{
           maxWidth: "1100px",
@@ -782,6 +723,7 @@ export default function Cari() {
           )}
         </section>
       </div>
+      </fieldset>
     </main>
   );
 }

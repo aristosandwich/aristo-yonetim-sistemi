@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { tumKayitlariOku, hataMesaji } from "../lib/aristoIslemler";
+import { koruyarakOnbellekYaz } from "../lib/bulutOnbellegi";
 
 type NotKaydi = {
   id: number;
@@ -52,10 +54,7 @@ function tarihiGoster(tarih: string) {
 function yerelNotOnbelleginiGuncelle(
   notlar: NotKaydi[]
 ) {
-  localStorage.setItem(
-    "aristo-notlar",
-    JSON.stringify(notlar)
-  );
+  koruyarakOnbellekYaz("aristo-notlar", notlar);
 }
 
 export default function Notlar() {
@@ -65,84 +64,25 @@ export default function Notlar() {
   const [kaydediliyor, setKaydediliyor] =
     useState(false);
 
+  const [hazir, setHazir] = useState(false);
+  const [veriHatasi, setVeriHatasi] = useState("");
+  const hazirRef = useRef(false);
+  const islemKilidi = useRef(false);
+  const okumaNo = useRef(0);
+
   useEffect(() => {
     let aktif = true;
-
-    async function notlariYukle() {
-      const { data, error } = await supabase
-        .from("notlar")
-        .select("id, tarih, metin")
-        .order("id", { ascending: false });
-
-      if (!aktif) {
-        return;
-      }
-
-      if (error) {
-        console.error(
-          "Notlar okunamadı:",
-          error
-        );
-        window.alert(
-          "Notlar buluttan okunamadı."
-        );
-        return;
-      }
-
-      let bulutNotlari = data || [];
-
-      if (bulutNotlari.length === 0) {
-        try {
-          const eskiNotlar: NotKaydi[] =
-            JSON.parse(
-              localStorage.getItem(
-                "aristo-notlar"
-              ) || "[]"
-            );
-
-          if (
-            Array.isArray(eskiNotlar) &&
-            eskiNotlar.length > 0
-          ) {
-            const { data: aktarilanlar, error: aktarimHatasi } =
-              await supabase
-                .from("notlar")
-                .upsert(
-                  eskiNotlar.map((kayit) => ({
-                    id: Number(kayit.id),
-                    tarih: tarihiIsoYap(kayit.tarih),
-                    metin: kayit.metin,
-                  })),
-                  { onConflict: "id" }
-                )
-                .select("id, tarih, metin");
-
-            if (!aktif) {
-              return;
-            }
-
-            if (aktarimHatasi) {
-              console.error(
-                "Eski notlar aktarılamadı:",
-                aktarimHatasi
-              );
-              window.alert(
-                "Eski notlar buluta aktarılamadı."
-              );
-            } else {
-              bulutNotlari = aktarilanlar || [];
-            }
-          }
-        } catch (hata) {
-          console.error(
-            "Eski notlar okunamadı:",
-            hata
-          );
-        }
-      }
-
+    async function buluttanYukle() {
+      if (islemKilidi.current) return;
+      const sira = ++okumaNo.current;
+      hazirRef.current = false;
+      setHazir(false);
+      try {
+        const bulutKayitlari = (await tumKayitlariOku("notlar", "id, tarih, metin"))
+          .sort((a, b) => Number(b.id) - Number(a.id));
+        if (!aktif || sira !== okumaNo.current) return;
       const yeniNotlar: NotKaydi[] =
-        bulutNotlari.map((kayit) => ({
+        bulutKayitlari.map((kayit) => ({
           id: Number(kayit.id || 0),
           tarih: String(kayit.tarih ?? ""),
           metin: String(kayit.metin ?? ""),
@@ -152,29 +92,27 @@ export default function Notlar() {
       yerelNotOnbelleginiGuncelle(
         yeniNotlar
       );
+        hazirRef.current = true;
+        setHazir(true);
+        setVeriHatasi("");
+      } catch (h) {
+        if (aktif && sira === okumaNo.current) {
+          setVeriHatasi("Bulut kayıtları okunamadı: " + hataMesaji(h));
+        }
+      }
     }
-
-    function odaklaninca() {
-      void notlariYukle();
-    }
-
-    void notlariYukle();
-    window.addEventListener(
-      "focus",
-      odaklaninca
-    );
-
-    return () => {
-      aktif = false;
-
-      window.removeEventListener(
-        "focus",
-        odaklaninca
-      );
-    };
+    void buluttanYukle();
+    const odaklaninca = () => { void buluttanYukle(); };
+    window.addEventListener("focus", odaklaninca);
+    return () => { aktif = false; window.removeEventListener("focus", odaklaninca); };
   }, []);
 
   async function kaydet() {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     if (!not.trim()) {
       alert("Not boş olamaz.");
       return;
@@ -192,25 +130,16 @@ export default function Notlar() {
 
     setKaydediliyor(true);
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("notlar")
       .insert({
         id: yeniNot.id,
         tarih: yeniNot.tarih,
         metin: yeniNot.metin,
-      });
+      }).select("id").single();
 
-    if (error) {
-      console.error(
-        "Not kaydedilemedi:",
-        error
-      );
-      window.alert(
-        "Not buluta kaydedilemedi."
-      );
-      setKaydediliyor(false);
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const yeniListe = [yeniNot, ...notlar];
 
@@ -220,26 +149,31 @@ export default function Notlar() {
     );
     setNot("");
     setKaydediliyor(false);
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   async function sil(id: number) {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     if (!window.confirm("Not silinsin mi?")) return;
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("notlar")
       .delete()
-      .eq("id", id);
+      .eq("id", id).select("id").single();
 
-    if (error) {
-      console.error(
-        "Not silinemedi:",
-        error
-      );
-      window.alert(
-        "Not buluttan silinemedi."
-      );
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const yeniListe = notlar.filter(
       (not) => not.id !== id
@@ -249,6 +183,14 @@ export default function Notlar() {
     yerelNotOnbelleginiGuncelle(
       yeniListe
     );
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   const filtrelenmisNotlar = useMemo(() => {
@@ -311,6 +253,12 @@ export default function Notlar() {
         fontFamily: "Arial,sans-serif",
       }}
     >
+      <div role="status" style={{ marginBottom: 12, color: veriHatasi ? "#b91c1c" : "#174d38" }}>
+        {veriHatasi || (!hazir ? "Güncel kayıtlar buluttan okunuyor…" : "")}
+        {veriHatasi && <button onClick={() => window.location.reload()}>Güncel kayıtları yükle</button>}
+      </div>
+      <fieldset disabled={!hazir || kaydediliyor || !!veriHatasi} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+
       <div
         style={{
           maxWidth: "900px",
@@ -420,6 +368,7 @@ export default function Notlar() {
           )}
         </section>
       </div>
+      </fieldset>
     </main>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { tumKayitlariOku, hataMesaji } from "../lib/aristoIslemler";
+import { koruyarakOnbellekYaz } from "../lib/bulutOnbellegi";
 
 type Fatura = {
   id: number;
@@ -23,15 +25,9 @@ function yerelMudoOnbelleginiGuncelle(
   faturalar: Fatura[],
   odemeler: Odeme[]
 ) {
-  localStorage.setItem(
-    "aristo-mudo-faturalar",
-    JSON.stringify(faturalar)
-  );
+  koruyarakOnbellekYaz("aristo-mudo-faturalar", faturalar);
 
-  localStorage.setItem(
-    "aristo-mudo-odemeler",
-    JSON.stringify(odemeler)
-  );
+  koruyarakOnbellekYaz("aristo-mudo-odemeler", odemeler);
 }
 
 export default function Mudo() {
@@ -51,109 +47,23 @@ export default function Mudo() {
   const [kaydediliyor, setKaydediliyor] =
     useState(false);
 
+  const [hazir, setHazir] = useState(false);
+  const [veriHatasi, setVeriHatasi] = useState("");
+  const hazirRef = useRef(false);
+  const islemKilidi = useRef(false);
+  const okumaNo = useRef(0);
+
   useEffect(() => {
     let aktif = true;
-
-    async function mudoKayitlariniYukle() {
-      const { data, error } = await supabase
-        .from("mudo")
-        .select(
-          "id, tarih, tip, fatura_no, tutar, aciklama"
-        )
-        .order("tarih", { ascending: false })
-        .order("id", { ascending: false });
-
-      if (!aktif) {
-        return;
-      }
-
-      if (error) {
-        console.error(
-          "Mudo kayıtları okunamadı:",
-          error
-        );
-        window.alert(
-          "Mudo kayıtları buluttan okunamadı."
-        );
-        return;
-      }
-
-      let bulutKayitlari = data || [];
-
-      if (bulutKayitlari.length === 0) {
-        try {
-          const eskiFaturalar: Fatura[] =
-            JSON.parse(
-              localStorage.getItem(
-                "aristo-mudo-faturalar"
-              ) || "[]"
-            );
-
-          const eskiOdemeler: Odeme[] =
-            JSON.parse(
-              localStorage.getItem(
-                "aristo-mudo-odemeler"
-              ) || "[]"
-            );
-
-          const aktarilacakKayitlar = [
-            ...(Array.isArray(eskiFaturalar)
-              ? eskiFaturalar.map((fatura) => ({
-                  id: Number(fatura.id),
-                  tarih: fatura.tarih,
-                  tip: "Fatura",
-                  fatura_no: fatura.faturaNo,
-                  tutar: Number(fatura.tutar || 0),
-                  aciklama: fatura.aciklama,
-                }))
-              : []),
-            ...(Array.isArray(eskiOdemeler)
-              ? eskiOdemeler.map((odeme) => ({
-                  id: Number(odeme.id),
-                  tarih: odeme.tarih,
-                  tip: "Ödeme",
-                  fatura_no: "",
-                  tutar: Number(odeme.tutar || 0),
-                  aciklama: odeme.aciklama,
-                }))
-              : []),
-          ];
-
-          if (aktarilacakKayitlar.length > 0) {
-            const { data: aktarilanlar, error: aktarimHatasi } =
-              await supabase
-                .from("mudo")
-                .upsert(aktarilacakKayitlar, {
-                  onConflict: "id",
-                })
-                .select(
-                  "id, tarih, tip, fatura_no, tutar, aciklama"
-                );
-
-            if (!aktif) {
-              return;
-            }
-
-            if (aktarimHatasi) {
-              console.error(
-                "Eski Mudo kayıtları aktarılamadı:",
-                aktarimHatasi
-              );
-              window.alert(
-                "Eski Mudo kayıtları buluta aktarılamadı."
-              );
-            } else {
-              bulutKayitlari = aktarilanlar || [];
-            }
-          }
-        } catch (hata) {
-          console.error(
-            "Eski Mudo kayıtları okunamadı:",
-            hata
-          );
-        }
-      }
-
+    async function buluttanYukle() {
+      if (islemKilidi.current) return;
+      const sira = ++okumaNo.current;
+      hazirRef.current = false;
+      setHazir(false);
+      try {
+        const bulutKayitlari = (await tumKayitlariOku("mudo", "id, tarih, tip, fatura_no, tutar, aciklama"))
+          .sort((a, b) => String(b.tarih ?? "").localeCompare(String(a.tarih ?? "")) || Number(b.id) - Number(a.id));
+        if (!aktif || sira !== okumaNo.current) return;
       const yeniFaturalar: Fatura[] =
         bulutKayitlari
           .filter((kayit) => kayit.tip === "Fatura")
@@ -181,26 +91,19 @@ export default function Mudo() {
         yeniFaturalar,
         yeniOdemeler
       );
+        hazirRef.current = true;
+        setHazir(true);
+        setVeriHatasi("");
+      } catch (h) {
+        if (aktif && sira === okumaNo.current) {
+          setVeriHatasi("Bulut kayıtları okunamadı: " + hataMesaji(h));
+        }
+      }
     }
-
-    function odaklaninca() {
-      void mudoKayitlariniYukle();
-    }
-
-    void mudoKayitlariniYukle();
-    window.addEventListener(
-      "focus",
-      odaklaninca
-    );
-
-    return () => {
-      aktif = false;
-
-      window.removeEventListener(
-        "focus",
-        odaklaninca
-      );
-    };
+    void buluttanYukle();
+    const odaklaninca = () => { void buluttanYukle(); };
+    window.addEventListener("focus", odaklaninca);
+    return () => { aktif = false; window.removeEventListener("focus", odaklaninca); };
   }, []);
 
   const toplamFatura = faturalar.reduce(
@@ -246,6 +149,11 @@ export default function Mudo() {
     );
 
   async function faturaKaydet() {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     const tutar = Number(faturaTutari);
 
     if (!faturaTarihi || !Number.isFinite(tutar) || tutar <= 0) {
@@ -267,7 +175,7 @@ export default function Mudo() {
 
     setKaydediliyor(true);
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("mudo")
       .insert({
         id: yeniFatura.id,
@@ -276,19 +184,10 @@ export default function Mudo() {
         fatura_no: yeniFatura.faturaNo,
         tutar: yeniFatura.tutar,
         aciklama: yeniFatura.aciklama,
-      });
+      }).select("id").single();
 
-    if (error) {
-      console.error(
-        "Mudo faturası kaydedilemedi:",
-        error
-      );
-      window.alert(
-        "Fatura buluta kaydedilemedi."
-      );
-      setKaydediliyor(false);
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const yeniListe = [yeniFatura, ...faturalar];
 
@@ -305,9 +204,22 @@ export default function Mudo() {
     setKaydediliyor(false);
 
     alert("Fatura kaydedildi.");
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   async function odemeKaydet() {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     const tutar = Number(odemeTutari);
 
     if (!odemeTarihi || !Number.isFinite(tutar) || tutar <= 0) {
@@ -328,7 +240,7 @@ export default function Mudo() {
 
     setKaydediliyor(true);
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("mudo")
       .insert({
         id: yeniOdeme.id,
@@ -337,19 +249,10 @@ export default function Mudo() {
         fatura_no: "",
         tutar: yeniOdeme.tutar,
         aciklama: yeniOdeme.aciklama,
-      });
+      }).select("id").single();
 
-    if (error) {
-      console.error(
-        "Mudo ödemesi kaydedilemedi:",
-        error
-      );
-      window.alert(
-        "Ödeme buluta kaydedilemedi."
-      );
-      setKaydediliyor(false);
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const yeniListe = [yeniOdeme, ...odemeler];
 
@@ -365,28 +268,33 @@ export default function Mudo() {
     setKaydediliyor(false);
 
     alert("Ödeme kaydedildi.");
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   async function faturaSil(id: number) {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     const onay = window.confirm("Bu fatura silinsin mi?");
 
     if (!onay) return;
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("mudo")
       .delete()
-      .eq("id", id);
+      .eq("id", id).select("id").single();
 
-    if (error) {
-      console.error(
-        "Mudo faturası silinemedi:",
-        error
-      );
-      window.alert(
-        "Fatura buluttan silinemedi."
-      );
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const yeniListe = faturalar.filter(
       (fatura) => fatura.id !== id
@@ -397,28 +305,33 @@ export default function Mudo() {
       yeniListe,
       odemeler
     );
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   async function odemeSil(id: number) {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     const onay = window.confirm("Bu ödeme silinsin mi?");
 
     if (!onay) return;
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("mudo")
       .delete()
-      .eq("id", id);
+      .eq("id", id).select("id").single();
 
-    if (error) {
-      console.error(
-        "Mudo ödemesi silinemedi:",
-        error
-      );
-      window.alert(
-        "Ödeme buluttan silinemedi."
-      );
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const yeniListe = odemeler.filter(
       (odeme) => odeme.id !== id
@@ -429,6 +342,14 @@ export default function Mudo() {
       faturalar,
       yeniListe
     );
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   const filtreliFaturalar = useMemo(() => {
@@ -541,6 +462,12 @@ export default function Mudo() {
         fontFamily: "Arial, sans-serif",
       }}
     >
+      <div role="status" style={{ marginBottom: 12, color: veriHatasi ? "#b91c1c" : "#174d38" }}>
+        {veriHatasi || (!hazir ? "Güncel kayıtlar buluttan okunuyor…" : "")}
+        {veriHatasi && <button onClick={() => window.location.reload()}>Güncel kayıtları yükle</button>}
+      </div>
+      <fieldset disabled={!hazir || kaydediliyor || !!veriHatasi} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+
       <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
         <Link href="/">← Ana Sayfaya Dön</Link>
 
@@ -996,6 +923,7 @@ export default function Mudo() {
           )}
         </section>
       </div>
+      </fieldset>
     </main>
   );
 }

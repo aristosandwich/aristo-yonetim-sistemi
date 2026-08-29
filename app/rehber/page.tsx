@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { tumKayitlariOku, hataMesaji } from "../lib/aristoIslemler";
+import { koruyarakOnbellekYaz } from "../lib/bulutOnbellegi";
 
 type RehberKaydi = {
   id: number;
@@ -15,10 +17,7 @@ type RehberKaydi = {
 function yerelRehberOnbelleginiGuncelle(
   kayitlar: RehberKaydi[]
 ) {
-  localStorage.setItem(
-    "aristo-rehber",
-    JSON.stringify(kayitlar)
-  );
+  koruyarakOnbellekYaz("aristo-rehber", kayitlar);
 }
 
 export default function Rehber() {
@@ -35,84 +34,23 @@ export default function Rehber() {
   const [kaydediliyor, setKaydediliyor] =
     useState(false);
 
+  const [hazir, setHazir] = useState(false);
+  const [veriHatasi, setVeriHatasi] = useState("");
+  const hazirRef = useRef(false);
+  const islemKilidi = useRef(false);
+  const okumaNo = useRef(0);
+
   useEffect(() => {
     let aktif = true;
-
-    async function rehberKayitlariniYukle() {
-      const { data, error } = await supabase
-        .from("rehber")
-        .select("id, ad, tur, telefon, not")
-        .order("id", { ascending: false });
-
-      if (!aktif) {
-        return;
-      }
-
-      if (error) {
-        console.error(
-          "Rehber kayıtları okunamadı:",
-          error
-        );
-        window.alert(
-          "Rehber kayıtları buluttan okunamadı."
-        );
-        return;
-      }
-
-      let bulutKayitlari = data || [];
-
-      if (bulutKayitlari.length === 0) {
-        try {
-          const eskiKayitlar: RehberKaydi[] =
-            JSON.parse(
-              localStorage.getItem(
-                "aristo-rehber"
-              ) || "[]"
-            );
-
-          if (
-            Array.isArray(eskiKayitlar) &&
-            eskiKayitlar.length > 0
-          ) {
-            const { data: aktarilanlar, error: aktarimHatasi } =
-              await supabase
-                .from("rehber")
-                .upsert(
-                  eskiKayitlar.map((kayit) => ({
-                    id: Number(kayit.id),
-                    ad: kayit.ad,
-                    tur: kayit.tur,
-                    telefon: kayit.telefon,
-                    not: kayit.not,
-                  })),
-                  { onConflict: "id" }
-                )
-                .select("id, ad, tur, telefon, not");
-
-            if (!aktif) {
-              return;
-            }
-
-            if (aktarimHatasi) {
-              console.error(
-                "Eski rehber kayıtları aktarılamadı:",
-                aktarimHatasi
-              );
-              window.alert(
-                "Eski rehber kayıtları buluta aktarılamadı."
-              );
-            } else {
-              bulutKayitlari = aktarilanlar || [];
-            }
-          }
-        } catch (hata) {
-          console.error(
-            "Eski rehber kayıtları okunamadı:",
-            hata
-          );
-        }
-      }
-
+    async function buluttanYukle() {
+      if (islemKilidi.current) return;
+      const sira = ++okumaNo.current;
+      hazirRef.current = false;
+      setHazir(false);
+      try {
+        const bulutKayitlari = (await tumKayitlariOku("rehber", "id, ad, tur, telefon, not"))
+          .sort((a, b) => Number(b.id) - Number(a.id));
+        if (!aktif || sira !== okumaNo.current) return;
       const yeniKayitlar: RehberKaydi[] =
         bulutKayitlari.map((kayit) => {
           const kayitTuru = [
@@ -137,26 +75,19 @@ export default function Rehber() {
       yerelRehberOnbelleginiGuncelle(
         yeniKayitlar
       );
+        hazirRef.current = true;
+        setHazir(true);
+        setVeriHatasi("");
+      } catch (h) {
+        if (aktif && sira === okumaNo.current) {
+          setVeriHatasi("Bulut kayıtları okunamadı: " + hataMesaji(h));
+        }
+      }
     }
-
-    function odaklaninca() {
-      void rehberKayitlariniYukle();
-    }
-
-    void rehberKayitlariniYukle();
-    window.addEventListener(
-      "focus",
-      odaklaninca
-    );
-
-    return () => {
-      aktif = false;
-
-      window.removeEventListener(
-        "focus",
-        odaklaninca
-      );
-    };
+    void buluttanYukle();
+    const odaklaninca = () => { void buluttanYukle(); };
+    window.addEventListener("focus", odaklaninca);
+    return () => { aktif = false; window.removeEventListener("focus", odaklaninca); };
   }, []);
 
   function formuTemizle() {
@@ -167,6 +98,11 @@ export default function Rehber() {
   }
 
   async function kaydet() {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     if (!ad.trim()) {
       alert("Ad veya firma gir.");
       return;
@@ -186,7 +122,7 @@ export default function Rehber() {
 
     setKaydediliyor(true);
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("rehber")
       .insert({
         id: yeniKayit.id,
@@ -194,19 +130,10 @@ export default function Rehber() {
         tur: yeniKayit.tur,
         telefon: yeniKayit.telefon,
         not: yeniKayit.not,
-      });
+      }).select("id").single();
 
-    if (error) {
-      console.error(
-        "Rehber kaydı kaydedilemedi:",
-        error
-      );
-      window.alert(
-        "Rehber kaydı buluta kaydedilemedi."
-      );
-      setKaydediliyor(false);
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const yeniListe = [yeniKayit, ...kayitlar];
 
@@ -218,30 +145,35 @@ export default function Rehber() {
     setKaydediliyor(false);
 
     alert("Rehber kaydı eklendi.");
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   async function sil(id: number) {
+    if (!hazirRef.current || veriHatasi || islemKilidi.current) return;
+    islemKilidi.current = true;
+    ++okumaNo.current;
+    setKaydediliyor(true);
+    try {
     const onay = window.confirm(
       "Bu rehber kaydı silinsin mi?"
     );
 
     if (!onay) return;
 
-    const { error } = await supabase
+    const { data: kaydedilen, error } = await supabase
       .from("rehber")
       .delete()
-      .eq("id", id);
+      .eq("id", id).select("id").single();
 
-    if (error) {
-      console.error(
-        "Rehber kaydı silinemedi:",
-        error
-      );
-      window.alert(
-        "Rehber kaydı buluttan silinemedi."
-      );
-      return;
-    }
+    if (error) throw error;
+    if (!kaydedilen) throw new Error("Kayıt bulunamadı veya işlem sonucu doğrulanamadı. Sayfayı yenileyin.");
 
     const yeniListe = kayitlar.filter(
       (kayit) => kayit.id !== id
@@ -251,6 +183,14 @@ export default function Rehber() {
     yerelRehberOnbelleginiGuncelle(
       yeniListe
     );
+    } catch (h) {
+      hazirRef.current = false;
+      setHazir(false);
+      setVeriHatasi(hataMesaji(h) + " İşlemi yeniden girmeden sayfayı yenileyin.");
+    } finally {
+      islemKilidi.current = false;
+      setKaydediliyor(false);
+    }
   }
 
   const filtrelenmisKayitlar = useMemo(() => {
@@ -334,6 +274,12 @@ export default function Rehber() {
         fontFamily: "Arial, sans-serif",
       }}
     >
+      <div role="status" style={{ marginBottom: 12, color: veriHatasi ? "#b91c1c" : "#174d38" }}>
+        {veriHatasi || (!hazir ? "Güncel kayıtlar buluttan okunuyor…" : "")}
+        {veriHatasi && <button onClick={() => window.location.reload()}>Güncel kayıtları yükle</button>}
+      </div>
+      <fieldset disabled={!hazir || kaydediliyor || !!veriHatasi} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+
       <div
         style={{
           maxWidth: "1050px",
@@ -634,6 +580,7 @@ export default function Rehber() {
           )}
         </section>
       </div>
+      </fieldset>
     </main>
   );
 }
