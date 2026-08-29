@@ -3,11 +3,12 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
 import Header from "../ui/Header";
-import { supabase } from "../lib/supabase";
+import { tumKayitlariOku, hataMesaji } from "../lib/aristoIslemler";
 
 type TarihliKayit = {
   id?: number | string;
@@ -29,11 +30,22 @@ type TahsilatKaydi = TarihliKayit & {
   tutar?: number;
 };
 
+type KasaKaydi = { tutar?: number };
+
 type KanalAdi =
   | "Dükkân Satışları"
+  | "Getir"
   | "Yemeksepeti"
-  | "Trendyol"
-  | "Uber Eats";
+  | "Trendyol / Uber";
+
+function kurus(tutar: unknown) {
+  const sayi = Number(tutar);
+  return Number.isFinite(sayi) ? Math.round(sayi * 100) : 0;
+}
+
+function kurusTopla<T>(kayitlar: T[], sec: (kayit: T) => unknown) {
+  return kayitlar.reduce((toplam, kayit) => toplam + kurus(sec(kayit)), 0);
+}
 
 function para(tutar: number) {
   return new Intl.NumberFormat("tr-TR", {
@@ -44,48 +56,24 @@ function para(tutar: number) {
 }
 
 function kayitTarihi(kayit: TarihliKayit) {
-  const anaDeger =
-    kayit.islemId ??
-    kayit.id ??
-    kayit.tarih;
-
-  if (
-    anaDeger === undefined ||
-    anaDeger === null
-  ) {
-    return null;
-  }
-
-  const dogrudan = new Date(anaDeger);
-
-  if (
-    !Number.isNaN(
-      dogrudan.getTime()
-    )
-  ) {
-    return dogrudan;
-  }
-
-  if (!kayit.tarih) {
-    return null;
-  }
-
-  const eslesme =
-    kayit.tarih.match(
+  const tarihMetni = String(kayit.tarih ?? "").trim();
+  const eslesme = tarihMetni.match(
       /(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/
     );
-
-  if (!eslesme) {
-    return null;
+  if (eslesme) {
+    const tarih = new Date(Number(eslesme[3]), Number(eslesme[2]) - 1,
+      Number(eslesme[1]), Number(eslesme[4] || 0), Number(eslesme[5] || 0));
+    return Number.isNaN(tarih.getTime()) ? null : tarih;
   }
-
-  return new Date(
-    Number(eslesme[3]),
-    Number(eslesme[2]) - 1,
-    Number(eslesme[1]),
-    Number(eslesme[4] || 0),
-    Number(eslesme[5] || 0)
-  );
+  if (tarihMetni) {
+    const dogrudan = new Date(tarihMetni);
+    if (!Number.isNaN(dogrudan.getTime())) return dogrudan;
+  }
+  // Yalnızca tarih alanı bulunmayan eski kayıtlarda milisaniyelik kimlik yedektir.
+  const yedek = Number(kayit.islemId ?? kayit.id);
+  if (!Number.isFinite(yedek) || yedek < 946684800000) return null;
+  const tarih = new Date(yedek);
+  return Number.isNaN(tarih.getTime()) ? null : tarih;
 }
 
 function buAyMi(
@@ -126,21 +114,15 @@ function kanalBul(
   if (
     deger.includes(
       "trendyol"
-    )
+    ) || deger.includes("uber")
   ) {
-    return "Trendyol";
-  }
-
-  if (
-    deger.includes("uber")
-  ) {
-    return "Uber Eats";
+    return "Trendyol / Uber";
   }
 
   if (
     deger.includes("getir")
   ) {
-    return null;
+    return "Getir";
   }
 
   return "Dükkân Satışları";
@@ -182,62 +164,27 @@ export default function Raporlar() {
   const [tahsilatlar, setTahsilatlar] =
     useState<TahsilatKaydi[]>([]);
 
+  const [kasa, setKasa] = useState<KasaKaydi>({ tutar: 0 });
+  const [hazir, setHazir] = useState(false);
+  const [veriHatasi, setVeriHatasi] = useState("");
+  const okumaNo = useRef(0);
+
   useEffect(() => {
     let aktif = true;
 
     async function verileriYukle() {
-      const [
-        satisSonucu,
-        giderSonucu,
-        tahsilatSonucu,
-      ] = await Promise.all([
-        supabase
-          .from("satislar")
-          .select(
-            "id, islem_id, tarih, platform, toplam"
-          )
-          .order("islem_id", {
-            ascending: false,
-          }),
-        supabase
-          .from("giderler")
-          .select("id, tarih, tutar")
-          .order("tarih", {
-            ascending: false,
-          }),
-        supabase
-          .from("tahsilatlar")
-          .select(
-            "id, tarih, platform, tutar"
-          )
-          .order("tarih", {
-            ascending: false,
-          }),
-      ]);
-
-      if (!aktif) {
-        return;
-      }
-
-      const hatalar = [
-        satisSonucu.error,
-        giderSonucu.error,
-        tahsilatSonucu.error,
-      ].filter(Boolean);
-
-      if (hatalar.length > 0) {
-        console.error(
-          "Rapor verileri okunamadı:",
-          hatalar
-        );
-        window.alert(
-          "Rapor verileri buluttan okunamadı."
-        );
-      }
-
-      if (!satisSonucu.error) {
+      const sira = ++okumaNo.current;
+      setHazir(false);
+      try {
+        const [satisSonucu, giderSonucu, tahsilatSonucu, kasaSonucu] = await Promise.all([
+          tumKayitlariOku("satislar", "id, islem_id, tarih, platform, toplam"),
+          tumKayitlariOku("giderler", "id, tarih, tutar"),
+          tumKayitlariOku("tahsilatlar", "id, tarih, platform, tutar"),
+          tumKayitlariOku("kasa", "id, tutar"),
+        ]);
+        if (!aktif || sira !== okumaNo.current) return;
         setSatislar(
-          (satisSonucu.data || []).map(
+          satisSonucu.map(
             (kayit) => ({
               id: Number(kayit.id || 0),
               islemId: Number(
@@ -257,11 +204,8 @@ export default function Raporlar() {
             })
           )
         );
-      }
-
-      if (!giderSonucu.error) {
         setGiderler(
-          (giderSonucu.data || []).map(
+          giderSonucu.map(
             (kayit) => ({
               id: Number(kayit.id || 0),
               tarih: String(
@@ -273,11 +217,8 @@ export default function Raporlar() {
             })
           )
         );
-      }
-
-      if (!tahsilatSonucu.error) {
         setTahsilatlar(
-          (tahsilatSonucu.data || []).map(
+          tahsilatSonucu.map(
             (kayit) => ({
               id: Number(kayit.id || 0),
               tarih: String(
@@ -292,6 +233,14 @@ export default function Raporlar() {
             })
           )
         );
+        const kasaSatiri = kasaSonucu.find((kayit) => Number(kayit.id) === 1) ?? kasaSonucu[0];
+        setKasa({ tutar: Number(kasaSatiri?.tutar || 0) });
+        setVeriHatasi("");
+        setHazir(true);
+      } catch (h) {
+        if (aktif && sira === okumaNo.current) {
+          setVeriHatasi("Rapor verileri buluttan okunamadı: " + hataMesaji(h));
+        }
       }
     }
 
@@ -343,25 +292,9 @@ export default function Raporlar() {
       [tahsilatlar]
     );
 
-  const toplamSatis =
-    aylikSatislar.reduce(
-      (toplam, kayit) =>
-        toplam +
-        Number(
-          kayit.toplam || 0
-        ),
-      0
-    );
+  const toplamSatis = kurusTopla(aylikSatislar, (kayit) => kayit.toplam) / 100;
 
-  const platformTahsilatlari =
-    aylikTahsilatlar.reduce(
-      (toplam, kayit) =>
-        toplam +
-        Number(
-          kayit.tutar || 0
-        ),
-      0
-    );
+  const platformTahsilatlari = kurusTopla(aylikTahsilatlar, (kayit) => kayit.tutar) / 100;
 
   const dukkanSatislari =
     aylikSatislar
@@ -372,14 +305,7 @@ export default function Raporlar() {
           ) ===
           "Dükkân Satışları"
       )
-      .reduce(
-        (toplam, kayit) =>
-          toplam +
-          Number(
-            kayit.toplam || 0
-          ),
-        0
-      );
+      .reduce((toplam, kayit) => toplam + kurus(kayit.toplam), 0) / 100;
 
   /*
     Platform satışları satış kayıtlarında tutuluyorsa
@@ -390,23 +316,11 @@ export default function Raporlar() {
     Böylece platform satışı ve daha sonra yatan tahsilat
     aynı anda iki kez gelir sayılmaz.
   */
-  const toplamGelir =
-    dukkanSatislari +
-    platformTahsilatlari;
+  const toplamGelir = (kurus(dukkanSatislari) + kurus(platformTahsilatlari)) / 100;
 
-  const toplamGider =
-    aylikGiderler.reduce(
-      (toplam, kayit) =>
-        toplam +
-        Number(
-          kayit.tutar || 0
-        ),
-      0
-    );
+  const toplamGider = kurusTopla(aylikGiderler, (kayit) => kayit.tutar) / 100;
 
-  const netKalan =
-    toplamGelir -
-    toplamGider;
+  const netKalan = (kurus(toplamGelir) - kurus(toplamGider)) / 100;
 
   const kanalToplamlari =
     useMemo(() => {
@@ -415,9 +329,9 @@ export default function Raporlar() {
         number
       > = {
         "Dükkân Satışları": 0,
+        Getir: 0,
         Yemeksepeti: 0,
-        Trendyol: 0,
-        "Uber Eats": 0,
+        "Trendyol / Uber": 0,
       };
 
       aylikSatislar.forEach(
@@ -431,10 +345,7 @@ export default function Raporlar() {
             return;
           }
 
-          sonuc[kanal] +=
-            Number(
-              kayit.toplam || 0
-            );
+          sonuc[kanal] = (kurus(sonuc[kanal]) + kurus(kayit.toplam)) / 100;
         }
       );
 
@@ -453,9 +364,9 @@ export default function Raporlar() {
   const satisDagilimi = (
     [
       "Dükkân Satışları",
+      "Getir",
       "Yemeksepeti",
-      "Trendyol",
-      "Uber Eats",
+      "Trendyol / Uber",
     ] as KanalAdi[]
   ).map((kanal) => ({
     kanal,
@@ -551,6 +462,15 @@ export default function Raporlar() {
           </p>
         </div>
 
+        <div role="status" style={{ marginBottom: "14px", color: veriHatasi ? "#b91c1c" : "#66736c", fontWeight: 800 }}>
+          {veriHatasi || (!hazir ? "Rapor verileri buluttan okunuyor…" : "")}
+          {veriHatasi && (
+            <button type="button" onClick={() => window.location.reload()} style={{ marginLeft: "10px" }}>
+              Yenile
+            </button>
+          )}
+        </div>
+
         <section
           style={{
             marginBottom: "20px",
@@ -628,7 +548,7 @@ export default function Raporlar() {
               color: "#174d38",
             }}
           >
-            💵 Kasa Hareketleri
+            💵 Kasa ve İşletme Durumu
           </h2>
 
           <div
@@ -641,30 +561,30 @@ export default function Raporlar() {
             }}
           >
             <OzetKart
-              baslik="Toplam Bakiye"
+              baslik="Kasadaki Gerçek Para"
               deger={para(
-                netKalan
+                Number(kasa.tutar || 0)
               )}
               tur={
-                netKalan < 0
+                Number(kasa.tutar || 0) < 0
                   ? "gider"
                   : "net"
               }
             />
 
             <OzetKart
-              baslik="Toplam Gelir"
+              baslik="Bu Ay İşletme Geliri"
               deger={para(
                 toplamGelir
               )}
             />
 
             <OzetKart
-              baslik="Toplam Gider"
+              baslik="Bu Ay İşletme Neti"
               deger={para(
-                toplamGider
+                netKalan
               )}
-              tur="gider"
+              tur={netKalan < 0 ? "gider" : "net"}
             />
           </div>
         </section>
