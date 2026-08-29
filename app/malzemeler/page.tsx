@@ -1,28 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  malzemeler as varsayilanMalzemeler,
   type Malzeme as TemelMalzeme,
 } from "../data/malzemeler";
 import { supabase } from "../lib/supabase";
+import { tumKayitlariOku, hataMesaji } from "../lib/aristoIslemler";
+import { malzemeSatirMaliyeti } from "../lib/maliyetHesabi";
 
 type Malzeme = TemelMalzeme & {
   direktFiyat: number;
+  fiyatTipi: "kg" | "adet" | "direkt";
 };
 
 function maliyetHesapla(malzeme: Malzeme) {
-  const direktFiyat = Number(malzeme.direktFiyat || 0);
-
-  if (direktFiyat > 0) {
-    return direktFiyat;
-  }
-
-  return (
-    (Number(malzeme.birimFiyat || 0) / 1000) *
-    Number(malzeme.gramaj || 0)
-  );
+  return malzemeSatirMaliyeti(malzeme, malzeme.gramaj);
 }
 
 export default function Malzemeler() {
@@ -31,77 +24,38 @@ export default function Malzemeler() {
   const [alan, setAlan] = useState<
     "Tümü" | "Sandviç" | "Salata"
   >("Tümü");
+  const [hazir, setHazir] = useState(false);
+  const [veriHatasi, setVeriHatasi] = useState("");
+  const [kaydedilenId, setKaydedilenId] = useState<number | null>(null);
+  const bulutKopyasi = useRef(new Map<number, Malzeme>());
+  const islemKilidi = useRef(new Set<number>());
 
   useEffect(() => {
     let aktif = true;
 
     async function malzemeleriYukle() {
-      const { data, error } = await supabase
-        .from("malzemeler")
-        .select("*")
-        .order("id", { ascending: true });
-
-      if (!aktif) return;
-
-      if (error) {
-        console.error("Malzemeler okunamadı:", error);
-        setMalzemeler([]);
-        return;
-      }
-
-      if (!data || data.length === 0) {
-        const ilkKayitlar = varsayilanMalzemeler.map((malzeme) => ({
-          id: malzeme.id,
-          ad: malzeme.ad,
-          kullanim_alani: malzeme.kullanimAlani,
-          gramaj: Number(malzeme.gramaj || 0),
-          birim_fiyat: Number(malzeme.birimFiyat || 0),
-          direkt_fiyat: 0,
-        }));
-
-        const { error: eklemeHatasi } = await supabase
-          .from("malzemeler")
-          .upsert(ilkKayitlar, { onConflict: "id" });
-
-        const yerelListe: Malzeme[] = varsayilanMalzemeler.map(
-          (malzeme) => ({
-            ...malzeme,
-            direktFiyat: 0,
-          })
-        );
-
-        if (eklemeHatasi) {
-          console.error(
-            "Varsayılan malzemeler eklenemedi:",
-            eklemeHatasi
-          );
-        }
-
-        setMalzemeler(yerelListe);
-        return;
-      }
-
-      const bulutMalzemeleri: Malzeme[] = data.map((kayit) => {
-        const varsayilan = varsayilanMalzemeler.find(
-          (malzeme) =>
-            malzeme.ad === String(kayit.ad ?? "") &&
-            malzeme.kullanimAlani ===
-              (kayit.kullanim_alani as TemelMalzeme["kullanimAlani"])
-        );
-
-        return {
+      setHazir(false);
+      try {
+        const data = await tumKayitlariOku("malzemeler", "id, ad, kullanim_alani, gramaj, birim_fiyat, direkt_fiyat, fiyat_tipi");
+        if (!aktif) return;
+        const bulutMalzemeleri: Malzeme[] = data.map((kayit) => ({
           id: Number(kayit.id),
           ad: String(kayit.ad ?? ""),
           kullanimAlani:
             kayit.kullanim_alani as TemelMalzeme["kullanimAlani"],
           gramaj: Number(kayit.gramaj || 0),
           birimFiyat: Number(kayit.birim_fiyat || 0),
-          kalori100Gr: Number(varsayilan?.kalori100Gr || 0),
+          kalori100Gr: 0,
           direktFiyat: Number(kayit.direkt_fiyat || 0),
-        };
-      });
-
-      setMalzemeler(bulutMalzemeleri);
+          fiyatTipi: (["kg", "adet", "direkt"].includes(String(kayit.fiyat_tipi))
+            ? String(kayit.fiyat_tipi) : "kg") as Malzeme["fiyatTipi"],
+        }));
+        setMalzemeler(bulutMalzemeleri);
+        bulutKopyasi.current = new Map(bulutMalzemeleri.map((m) => [m.id, { ...m }]));
+        setVeriHatasi(""); setHazir(true);
+      } catch (h) {
+        if (aktif) setVeriHatasi("Malzemeler buluttan okunamadı: " + hataMesaji(h));
+      }
     }
 
     malzemeleriYukle();
@@ -111,60 +65,46 @@ export default function Malzemeler() {
     };
   }, []);
 
-  async function kaydet(yeniListe: Malzeme[]) {
-    setMalzemeler(yeniListe);
-
-    const bulutKayitlari = yeniListe.map((malzeme) => ({
-      id: malzeme.id,
-      ad: malzeme.ad,
-      kullanim_alani: malzeme.kullanimAlani,
-      gramaj: Number(malzeme.gramaj || 0),
-      birim_fiyat: Number(malzeme.birimFiyat || 0),
-      direkt_fiyat: Number(malzeme.direktFiyat || 0),
-    }));
-
-    const { error } = await supabase
-      .from("malzemeler")
-      .upsert(bulutKayitlari, { onConflict: "id" });
-
-    if (error) {
-      console.error("Malzemeler kaydedilemedi:", error);
-      window.alert("Malzemeler buluta kaydedilemedi.");
-    }
-  }
-
   function guncelle(
     id: number,
-    alanAdi: "gramaj" | "birimFiyat" | "direktFiyat",
-    deger: number
+    alanAdi: "gramaj" | "birimFiyat" | "direktFiyat" | "fiyatTipi",
+    deger: number | Malzeme["fiyatTipi"]
   ) {
-    const yeniListe = malzemeler.map((malzeme) =>
+    setMalzemeler((mevcut) => mevcut.map((malzeme) =>
       malzeme.id === id
         ? {
             ...malzeme,
-            [alanAdi]: Math.max(deger, 0),
+            [alanAdi]: typeof deger === "number" ? Math.max(deger, 0) : deger,
           }
         : malzeme
-    );
-
-    void kaydet(yeniListe);
+    ));
   }
 
-  function varsayilanaDon() {
-    const onay = window.confirm(
-      "Bütün gramaj ve fiyat bilgileri varsayılana dönsün mü?"
-    );
-
-    if (!onay) return;
-
-    const yeniListe: Malzeme[] = varsayilanMalzemeler.map(
-      (malzeme) => ({
-        ...malzeme,
-        direktFiyat: 0,
-      })
-    );
-
-    void kaydet(yeniListe);
+  async function satiriKaydet(id: number) {
+    if (!hazir || veriHatasi || islemKilidi.current.has(id)) return;
+    const yeni = malzemeler.find((m) => m.id === id);
+    const eski = bulutKopyasi.current.get(id);
+    if (!yeni || !eski || JSON.stringify(yeni) === JSON.stringify(eski)) return;
+    if (![yeni.gramaj, yeni.birimFiyat, yeni.direktFiyat].every(Number.isFinite)) {
+      setVeriHatasi("Geçerli bir fiyat ve gramaj girin."); return;
+    }
+    islemKilidi.current.add(id); setKaydedilenId(id);
+    try {
+      const { data, error } = await supabase.from("malzemeler").update({
+        gramaj: yeni.gramaj, birim_fiyat: yeni.birimFiyat,
+        direkt_fiyat: yeni.direktFiyat, fiyat_tipi: yeni.fiyatTipi,
+      }).eq("id", id).eq("gramaj", eski.gramaj).eq("birim_fiyat", eski.birimFiyat)
+        .eq("direkt_fiyat", eski.direktFiyat).eq("fiyat_tipi", eski.fiyatTipi)
+        .select("id").single();
+      if (error) throw error;
+      if (!data) throw new Error("Malzeme değişmiş veya silinmiş.");
+      bulutKopyasi.current.set(id, { ...yeni }); setVeriHatasi("");
+    } catch (h) {
+      setMalzemeler((mevcut) => mevcut.map((m) => m.id === id ? { ...eski } : m));
+      setVeriHatasi(hataMesaji(h) + " Güncel değer geri yüklendi.");
+    } finally {
+      islemKilidi.current.delete(id); setKaydedilenId(null);
+    }
   }
 
   const filtrelenmisMalzemeler = useMemo(() => {
@@ -255,6 +195,10 @@ export default function Malzemeler() {
           Gramaj ve kg fiyatından hesapla veya direkt porsiyon
           maliyeti gir. Direkt fiyat girilmişse hesaplamada o
           kullanılır. Kalori ayrı Kalori Hesabı ekranındadır.
+        </p>
+
+        <p role="status" style={{ color: veriHatasi ? "#b91c1c" : "#66736c", fontWeight: "bold" }}>
+          {veriHatasi || (!hazir ? "Malzemeler buluttan okunuyor…" : kaydedilenId ? "Kaydediliyor…" : "")}
         </p>
 
         <section
@@ -363,7 +307,8 @@ export default function Malzemeler() {
             }}
           >
             <button
-              onClick={varsayilanaDon}
+              onClick={() => window.location.reload()}
+              disabled={!hazir || kaydedilenId !== null}
               style={{
                 width: "100%",
                 padding: "12px",
@@ -374,7 +319,7 @@ export default function Malzemeler() {
                 cursor: "pointer",
               }}
             >
-              ↩️ Gramaj ve Fiyatları Sıfırla
+              ↻ Buluttan Yenile
             </button>
           </div>
         </section>
@@ -394,6 +339,7 @@ export default function Malzemeler() {
                   <th style={hucre}>Alan</th>
                   <th style={hucre}>Gramaj</th>
                   <th style={hucre}>Kg Fiyatı</th>
+                  <th style={hucre}>Fiyat Tipi</th>
                   <th style={hucre}>Gram Maliyeti</th>
                   <th style={hucre}>Direkt Fiyat</th>
                   <th style={hucre}>Kullanılan Maliyet</th>
@@ -424,6 +370,7 @@ export default function Malzemeler() {
                           type="number"
                           min="0"
                           value={malzeme.gramaj}
+                          disabled={!hazir || kaydedilenId !== null}
                           onChange={(event) =>
                             guncelle(
                               malzeme.id,
@@ -431,6 +378,7 @@ export default function Malzemeler() {
                               Number(event.target.value)
                             )
                           }
+                          onBlur={() => void satiriKaydet(malzeme.id)}
                           style={{
                             width: "90px",
                             padding: "8px",
@@ -447,6 +395,7 @@ export default function Malzemeler() {
                           min="0"
                           step="0.01"
                           value={malzeme.birimFiyat}
+                          disabled={!hazir || kaydedilenId !== null}
                           onChange={(event) =>
                             guncelle(
                               malzeme.id,
@@ -454,6 +403,7 @@ export default function Malzemeler() {
                               Number(event.target.value)
                             )
                           }
+                          onBlur={() => void satiriKaydet(malzeme.id)}
                           style={{
                             width: "110px",
                             padding: "8px",
@@ -461,6 +411,22 @@ export default function Malzemeler() {
                             borderRadius: "8px",
                           }}
                         />
+                      </td>
+
+                      <td style={hucre}>
+                        <select
+                          value={malzeme.fiyatTipi}
+                          disabled={!hazir || kaydedilenId !== null}
+                          onChange={(event) =>
+                            guncelle(malzeme.id, "fiyatTipi", event.target.value as Malzeme["fiyatTipi"])
+                          }
+                          onBlur={() => void satiriKaydet(malzeme.id)}
+                          style={{ padding: "8px", border: "1px solid #d1d5db", borderRadius: "8px" }}
+                        >
+                          <option value="kg">Kg</option>
+                          <option value="adet">Adet</option>
+                          <option value="direkt">Direkt porsiyon</option>
+                        </select>
                       </td>
 
                       <td style={hucre}>
@@ -473,6 +439,7 @@ export default function Malzemeler() {
                           min="0"
                           step="0.01"
                           value={malzeme.direktFiyat}
+                          disabled={!hazir || kaydedilenId !== null}
                           onChange={(event) =>
                             guncelle(
                               malzeme.id,
@@ -480,6 +447,7 @@ export default function Malzemeler() {
                               Number(event.target.value)
                             )
                           }
+                          onBlur={() => void satiriKaydet(malzeme.id)}
                           style={{
                             width: "110px",
                             padding: "8px",

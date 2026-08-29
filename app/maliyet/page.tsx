@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { tumKayitlariOku, hataMesaji } from "../lib/aristoIslemler";
+import { receteMaliyeti } from "../lib/maliyetHesabi";
 
 type Kategori = "Sandviç" | "Salata" | "İçecek" | "Ek Ürün";
 
@@ -186,30 +187,19 @@ export default function MaliyetVeKarlilik() {
       setYukleniyor(true);
       setHata("");
 
+      try {
       const [urunSonucu, malzemeSonucu, receteSonucu] = await Promise.all([
-        supabase.from("urunler").select("*"),
-        supabase.from("malzemeler").select("*"),
-        supabase.from("receteler").select("*"),
+        tumKayitlariOku("urunler"),
+        tumKayitlariOku("malzemeler"),
+        tumKayitlariOku("receteler"),
       ]);
 
       if (!aktif) return;
 
-      const ilkHata = urunSonucu.error || malzemeSonucu.error || receteSonucu.error;
-
-      if (ilkHata) {
-        setHata(`Veriler yüklenemedi: ${ilkHata.message}`);
-        setYukleniyor(false);
-        return;
-      }
-
-      const yeniUrunler = urunleriDonustur(
-        (urunSonucu.data || []) as SupabaseKaydi[]
-      );
-      const yeniMalzemeler = malzemeleriDonustur(
-        (malzemeSonucu.data || []) as SupabaseKaydi[]
-      );
+      const yeniUrunler = urunleriDonustur(urunSonucu as SupabaseKaydi[]);
+      const yeniMalzemeler = malzemeleriDonustur(malzemeSonucu as SupabaseKaydi[]);
       const yeniReceteler = receteleriDonustur(
-        (receteSonucu.data || []) as SupabaseKaydi[],
+        receteSonucu as SupabaseKaydi[],
         yeniUrunler,
         yeniMalzemeler
       );
@@ -218,6 +208,9 @@ export default function MaliyetVeKarlilik() {
       setMalzemeler(yeniMalzemeler);
       setReceteler(yeniReceteler);
       setYukleniyor(false);
+      } catch (h) {
+        if (aktif) { setHata("Veriler yüklenemedi: " + hataMesaji(h)); setYukleniyor(false); }
+      }
     }
 
     void yukle();
@@ -241,43 +234,7 @@ export default function MaliyetVeKarlilik() {
     }
 
     const kullanimAlani = urun.kategori === "Salata" ? "Salata" : "Sandviç";
-    let maliyet = 0;
-    let eksik = 0;
-
-    recete.malzemeler.forEach((satir) => {
-      const adaylar = malzemeler.filter((m) => m.ad === satir.malzeme);
-      const fiyatiVar = (kayit: Malzeme) =>
-        Number(kayit.direktFiyat || 0) > 0 ||
-        Number(kayit.birimFiyat || 0) > 0;
-      const malzeme =
-        adaylar.find(
-          (m) => m.kullanimAlani === kullanimAlani && fiyatiVar(m)
-        ) ||
-        adaylar.find(fiyatiVar) ||
-        adaylar.find((m) => m.kullanimAlani === kullanimAlani) ||
-        adaylar[0];
-
-      if (!malzeme || !fiyatiVar(malzeme)) {
-        eksik += 1;
-        return;
-      }
-
-      const direktFiyat = Number(malzeme.direktFiyat || 0);
-      const birimFiyat = Number(malzeme.birimFiyat || 0);
-
-      if (direktFiyat > 0) {
-        maliyet += direktFiyat;
-      } else if (
-        malzeme.fiyatTipi === "adet" ||
-        malzeme.fiyatTipi === "direkt"
-      ) {
-        maliyet += birimFiyat;
-      } else {
-        maliyet += (birimFiyat / 1000) * Number(satir.gram || 0);
-      }
-    });
-
-    return { maliyet, receteVar: true, eksik };
+    return { ...receteMaliyeti(recete.malzemeler, malzemeler, kullanimAlani), receteVar: true };
   }
 
   const hesaplanan = useMemo(() => {

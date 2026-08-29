@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { receteler as varsayilanReceteler } from "../data/receteler";
-import { supabase } from "../lib/supabase";
+import { tumKayitlariOku, hataMesaji } from "../lib/aristoIslemler";
+import { malzemeBul, malzemeSatirMaliyeti } from "../lib/maliyetHesabi";
 
 type Malzeme = {
   id: number;
@@ -12,6 +12,7 @@ type Malzeme = {
   gramaj: number;
   birimFiyat: number;
   direktFiyat: number;
+  fiyatTipi: "kg" | "adet" | "direkt";
 };
 
 type ReceteSatiri = {
@@ -30,6 +31,7 @@ export default function Receteler() {
   const [arama, setArama] = useState("");
   const [secilenUrun, setSecilenUrun] = useState("");
   const [yukleniyor, setYukleniyor] = useState(true);
+  const [veriHatasi, setVeriHatasi] = useState("");
 
   useEffect(() => {
     let aktif = true;
@@ -37,27 +39,13 @@ export default function Receteler() {
     async function verileriYukle() {
       setYukleniyor(true);
 
-      const [
-        { data: receteData, error: receteHatasi },
-        { data: malzemeData, error: malzemeHatasi },
-      ] = await Promise.all([
-        supabase
-          .from("receteler")
-          .select("id, urun, malzeme, gram")
-          .order("id", { ascending: true }),
-        supabase
-          .from("malzemeler")
-          .select("id, ad, kullanim_alani, gramaj, birim_fiyat, direkt_fiyat")
-          .order("id", { ascending: true }),
-      ]);
-
-      if (!aktif) return;
-
-      if (malzemeHatasi) {
-        console.error("Malzemeler okunamadı:", malzemeHatasi);
-        setMalzemeler([]);
-      } else {
-        const bulutMalzemeleri: Malzeme[] = (malzemeData || []).map(
+      try {
+        const [receteData, malzemeData] = await Promise.all([
+          tumKayitlariOku("receteler", "id, urun, malzeme, gram"),
+          tumKayitlariOku("malzemeler", "id, ad, kullanim_alani, gramaj, birim_fiyat, direkt_fiyat, fiyat_tipi"),
+        ]);
+        if (!aktif) return;
+        const bulutMalzemeleri: Malzeme[] = malzemeData.map(
           (kayit) => ({
             id: Number(kayit.id),
             ad: String(kayit.ad ?? ""),
@@ -68,63 +56,15 @@ export default function Receteler() {
             gramaj: Number(kayit.gramaj || 0),
             birimFiyat: Number(kayit.birim_fiyat || 0),
             direktFiyat: Number(kayit.direkt_fiyat || 0),
+            fiyatTipi: (["kg", "adet", "direkt"].includes(String(kayit.fiyat_tipi))
+              ? String(kayit.fiyat_tipi) : "kg") as Malzeme["fiyatTipi"],
           })
         );
-
         setMalzemeler(bulutMalzemeleri);
-      }
-
-      let kullanilacakReceteData = receteData || [];
-
-      if (receteHatasi) {
-        console.error("Reçeteler okunamadı:", receteHatasi);
-        setReceteler([]);
-        setYukleniyor(false);
-        return;
-      }
-
-      if (kullanilacakReceteData.length === 0) {
-        const ilkKayitlar = varsayilanReceteler.flatMap((recete) =>
-          recete.malzemeler.map((satir) => ({
-            urun: recete.urun,
-            malzeme: satir.malzeme,
-            gram: Number(satir.gram || 0),
-          }))
-        );
-
-        const { data: eklenenler, error: eklemeHatasi } = await supabase
-          .from("receteler")
-          .insert(ilkKayitlar)
-          .select("id, urun, malzeme, gram");
-
-        if (eklemeHatasi) {
-          console.error(
-            "Varsayılan reçeteler Supabase'e eklenemedi:",
-            eklemeHatasi
-          );
-
-          const yerelReceteler: Recete[] = varsayilanReceteler.map(
-            (recete) => ({
-              urun: recete.urun,
-              malzemeler: recete.malzemeler.map((satir) => ({
-                malzeme: satir.malzeme,
-                gram: Number(satir.gram || 0),
-              })),
-            })
-          );
-
-          setReceteler(yerelReceteler);
-          setSecilenUrun((mevcut) => mevcut || yerelReceteler[0]?.urun || "");
-          setYukleniyor(false);
-          return;
-        }
-
-        kullanilacakReceteData = eklenenler || [];
-      }
 
       const receteHaritasi = new Map<string, ReceteSatiri[]>();
 
-      for (const kayit of kullanilacakReceteData) {
+      for (const kayit of receteData) {
         const urun = String(kayit.urun ?? "");
         if (!urun) continue;
 
@@ -156,6 +96,10 @@ export default function Receteler() {
       });
 
       setYukleniyor(false);
+      setVeriHatasi("");
+      } catch (h) {
+        if (aktif) { setVeriHatasi("Reçeteler buluttan okunamadı: " + hataMesaji(h)); setYukleniyor(false); }
+      }
     }
 
     verileriYukle();
@@ -188,25 +132,13 @@ export default function Receteler() {
   const hesaplananSatirlar = useMemo(() => {
     return (secilenRecete?.malzemeler || []).map(
       (satir) => {
-        const bulunanMalzemeler = malzemeler.filter(
-          (malzeme) => malzeme.ad === satir.malzeme
-        );
-
-        const malzeme =
-          bulunanMalzemeler.find((kayit) =>
-            secilenUrun.includes("Salata")
-              ? kayit.kullanimAlani === "Salata"
-              : kayit.kullanimAlani === "Sandviç"
-          ) || bulunanMalzemeler[0];
+        const malzeme = malzemeBul(malzemeler, satir,
+          secilenUrun.includes("Salata") ? "Salata" : "Sandviç");
 
         const direktFiyat = Number(malzeme?.direktFiyat || 0);
         const kgFiyati = Number(malzeme?.birimFiyat || 0);
 
-        const maliyet = malzeme
-          ? direktFiyat > 0
-            ? direktFiyat
-            : (kgFiyati / 1000) * Number(satir.gram || 0)
-          : 0;
+        const maliyet = malzeme ? malzemeSatirMaliyeti(malzeme, satir.gram) : 0;
 
         return {
           ...satir,
@@ -292,6 +224,12 @@ export default function Receteler() {
         >
           Ürün içeriklerini ve maliyetlerini görüntüle.
         </p>
+
+        {veriHatasi && (
+          <p role="alert" style={{ color: "#b91c1c", fontWeight: "bold" }}>
+            {veriHatasi} <button type="button" onClick={() => window.location.reload()}>Yenile</button>
+          </p>
+        )}
 
         {yukleniyor ? (
           <section style={kartStili}>
