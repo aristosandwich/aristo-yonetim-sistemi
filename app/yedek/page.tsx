@@ -324,6 +324,35 @@ export default function Yedekleme() {
 
       const boyut = yedekIndirmeBaglantisi(yedek, "aristo-yedek");
 
+      const { data: oturumVerisi, error: oturumHatasi } =
+        await supabase.auth.getSession();
+
+      if (oturumHatasi || !oturumVerisi.session?.access_token) {
+        throw new Error(
+          "Yedek bilgisayara indirildi ancak e-posta için oturum doğrulanamadı."
+        );
+      }
+
+      const epostaYaniti = await fetch("/api/yedek-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${oturumVerisi.session.access_token}`,
+        },
+        body: JSON.stringify(yedek),
+      });
+
+      if (!epostaYaniti.ok) {
+        const epostaSonucu = (await epostaYaniti
+          .json()
+          .catch(() => null)) as { hata?: string } | null;
+
+        throw new Error(
+          epostaSonucu?.hata ||
+            "Yedek bilgisayara indirildi ancak e-posta gönderilemedi."
+        );
+      }
+
       setMevcutOzet({
         tabloSayisi: YEDEK_TABLOLARI.length,
         kayitSayisi,
@@ -332,7 +361,7 @@ export default function Yedekleme() {
       });
 
       bildirimGoster(
-        "Supabase tam yedeği bilgisayara indirildi."
+        "Tam yedek bilgisayara indirildi ve e-postaya gönderildi."
       );
     } catch (hata) {
       console.error(
@@ -340,7 +369,9 @@ export default function Yedekleme() {
         hata
       );
       hataGoster(
-        "Bulut yedeği oluşturulamadı."
+        hata instanceof Error
+          ? hata.message
+          : "Bulut yedeği oluşturulamadı."
       );
     } finally {
       setYedekHazirlaniyor(false);
@@ -691,7 +722,7 @@ export default function Yedekleme() {
               >
                 {yedekHazirlaniyor
                   ? "Yedek Hazırlanıyor..."
-                  : "⬇️ Tam Yedeği İndir"}
+                  : "⬇️ Bilgisayara İndir ve E-postaya Gönder"}
               </button>
             </div>
 
