@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS public.aristo_islem_sonuclari_v2 (
 ALTER TABLE public.aristo_islem_sonuclari_v2 ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS aristo_v2_sonuc_okuma ON public.aristo_islem_sonuclari_v2;
 CREATE POLICY aristo_v2_sonuc_okuma ON public.aristo_islem_sonuclari_v2
-  FOR SELECT TO authenticated USING ((SELECT auth.uid()) IS NOT NULL);
+  FOR SELECT TO authenticated USING (kullanici_id = (SELECT auth.uid()));
 DROP POLICY IF EXISTS aristo_v2_sonuc_yazma ON public.aristo_islem_sonuclari_v2;
 CREATE POLICY aristo_v2_sonuc_yazma ON public.aristo_islem_sonuclari_v2
   FOR INSERT TO authenticated WITH CHECK (kullanici_id = (SELECT auth.uid()));

@@ -344,7 +344,7 @@ export default function Tahsilatlar() {
     useMemo(() => {
       return kayitlar.filter((kayit) => {
         const kayitTarihi = new Date(
-          kayit.id
+          kayit.tarih
         );
 
         if (baslangicTarihi) {
