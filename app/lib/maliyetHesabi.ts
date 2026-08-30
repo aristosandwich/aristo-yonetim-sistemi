@@ -26,10 +26,12 @@ export function malzemeSatirMaliyeti(malzeme: MaliyetMalzemesi, gram: number) {
   const direkt = Number(malzeme.direktFiyat || 0);
   const birim = Number(malzeme.birimFiyat || 0);
   const miktar = Number(gram || 0);
-  if (direkt > 0) return Math.round(direkt * 100) / 100;
+  if (direkt > 0 || malzeme.fiyatTipi === "direkt") {
+    return Math.round((direkt || birim) * 100) / 100;
+  }
   if (birim <= 0 || miktar < 0) return 0;
-  if (malzeme.fiyatTipi === "adet" || malzeme.fiyatTipi === "direkt") {
-    return Math.round(birim * 100) / 100;
+  if (malzeme.fiyatTipi === "adet") {
+    return Math.round(birim * miktar * 100) / 100;
   }
   return Math.round((birim / 1000) * miktar * 100) / 100;
 }
