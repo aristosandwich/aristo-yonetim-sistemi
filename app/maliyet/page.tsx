@@ -31,6 +31,7 @@ type Recete = {
   malzemeler: {
     malzeme: string;
     gram: number;
+    maliyetMiktari: number;
   }[];
 };
 
@@ -155,6 +156,9 @@ function receteleriDonustur(
         return {
           malzeme: malzemeAdi,
           gram: sayi(veri.gram ?? veri.gramaj ?? veri.miktar),
+          maliyetMiktari: sayi(
+            veri.maliyet_miktari ?? veri.maliyetMiktari ?? 1
+          ),
         };
       })
       .filter((satir): satir is Recete["malzemeler"][number] => satir !== null);

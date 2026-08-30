@@ -6,7 +6,7 @@ export type MaliyetMalzemesi = {
   fiyatTipi: "kg" | "adet" | "direkt";
 };
 
-export type MaliyetSatiri = { malzeme: string; gram: number };
+export type MaliyetSatiri = { malzeme: string; gram: number; maliyetMiktari?: number };
 
 export function maliyetMetniniNormallestir(deger: string) {
   return deger.trim().replace(/\s+/g, " ").toLocaleLowerCase("tr-TR");
@@ -22,7 +22,11 @@ export function malzemeBul(
   return adaylar.find((m) => m.kullanimAlani === kullanimAlani) ?? adaylar[0];
 }
 
-export function malzemeSatirMaliyeti(malzeme: MaliyetMalzemesi, gram: number) {
+export function malzemeSatirMaliyeti(
+  malzeme: MaliyetMalzemesi,
+  gram: number,
+  maliyetMiktari?: number
+) {
   const direkt = Number(malzeme.direktFiyat || 0);
   const birim = Number(malzeme.birimFiyat || 0);
   const miktar = Number(gram || 0);
@@ -31,7 +35,8 @@ export function malzemeSatirMaliyeti(malzeme: MaliyetMalzemesi, gram: number) {
   }
   if (birim <= 0 || miktar < 0) return 0;
   if (malzeme.fiyatTipi === "adet") {
-    return Math.round(birim * miktar * 100) / 100;
+    const adet = Number(maliyetMiktari ?? 1);
+    return adet < 0 ? 0 : Math.round(birim * adet * 100) / 100;
   }
   return Math.round((birim / 1000) * miktar * 100) / 100;
 }
@@ -49,7 +54,9 @@ export function receteMaliyeti(
       eksik += 1;
       continue;
     }
-    kurus += Math.round(malzemeSatirMaliyeti(malzeme, satir.gram) * 100);
+    kurus += Math.round(
+      malzemeSatirMaliyeti(malzeme, satir.gram, satir.maliyetMiktari) * 100
+    );
   }
   return { maliyet: kurus / 100, eksik };
 }
