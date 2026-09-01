@@ -698,7 +698,7 @@ export default function Home() {
 
                   {kart.baslik === "Satış Sayısı" && (
                     <Link
-                      href="/satis#bugunku-satislar"
+                      href="/satis-ozeti"
                       aria-label="Bugünkü satış özetini aç"
                       style={{
                         position: "absolute",
