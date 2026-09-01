@@ -3050,7 +3050,7 @@ export default function Satislar() {
                         fontSize: "18px",
                       }}
                     >
-                      Fiyat Gir
+                      Fiyatı Elle Gir
                     </strong>
                   </button>
                 )}
