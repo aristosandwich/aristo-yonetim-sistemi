@@ -167,6 +167,14 @@ const kategoriSirasi = [
   "Ek Ürün",
 ];
 
+const kendiSandviciniYap: Urun = {
+  id: -1,
+  ad: "Kendi Sandviçini Yap",
+  kategori: "Sandviç",
+  satisFiyati: 0,
+  aktif: true,
+};
+
 
 function bosAdisyon(
   id: string,
@@ -702,6 +710,42 @@ export default function Satislar() {
       );
   }, [kayitlar]);
 
+  const bugunkuIslemler = useMemo(() => {
+    const bugun = new Date();
+
+    return islemler.filter((islem) => {
+      const tarih = new Date(islem.islemId);
+
+      return (
+        tarih.getDate() === bugun.getDate() &&
+        tarih.getMonth() === bugun.getMonth() &&
+        tarih.getFullYear() === bugun.getFullYear()
+      );
+    });
+  }, [islemler]);
+
+  const bugunkuOzet = useMemo(() => {
+    return bugunkuIslemler.reduce(
+      (ozet, islem) => {
+        ozet.toplam += islem.toplam;
+        ozet.urunAdedi += islem.urunler.reduce(
+          (adet, urun) => adet + Number(urun.adet || 0),
+          0
+        );
+        ozet.nakit += islem.urunler.reduce(
+          (tutar, urun) => tutar + Number(urun.nakitTutari || 0),
+          0
+        );
+        ozet.kart += islem.urunler.reduce(
+          (tutar, urun) => tutar + Number(urun.kartTutari || 0),
+          0
+        );
+        return ozet;
+      },
+      { toplam: 0, urunAdedi: 0, nakit: 0, kart: 0 }
+    );
+  }, [bugunkuIslemler]);
+
   const bugunkuSatisToplami =
     useMemo(() => {
       const bugun = new Date();
@@ -860,7 +904,11 @@ export default function Satislar() {
     setSecilenUrun(urun);
     setSecimAdet(1);
     setSecimExtra("0");
-    setSecimFiyat(String(Number(urun.satisFiyati || 0)));
+    setSecimFiyat(
+      urun.id === kendiSandviciniYap.id
+        ? ""
+        : String(Number(urun.satisFiyati || 0))
+    );
     setSecimEkmek("Beyaz Baget");
   }
 
@@ -913,6 +961,9 @@ export default function Satislar() {
     );
     try {
       if (!Number.isInteger(adet) || adet < 1 || adet > 9999) throw new Error("Adet pozitif tam sayı olmalı.");
+      if (secilenUrun.id === kendiSandviciniYap.id && satisFiyati <= 0) {
+        throw new Error("Kendi Sandviçini Yap için satış fiyatını girin.");
+      }
       kurus(extra); kurus(satisFiyati);
     } catch (h) { window.alert(hataMesaji(h)); return; }
     const ekmek =
@@ -2965,6 +3016,45 @@ export default function Satislar() {
                   gap: "11px",
                 }}
               >
+                {kategori === "Sandviç" && (
+                  <button
+                    onClick={() => uruneTikla(kendiSandviciniYap)}
+                    style={{
+                      minHeight: "125px",
+                      padding: "17px",
+                      borderRadius: "15px",
+                      textAlign: "left",
+                      cursor: "pointer",
+                      border: "2px dashed #174d38",
+                      background: "#edf7f1",
+                      transform:
+                        sonEklenenId === kendiSandviciniYap.id
+                          ? "scale(.96)"
+                          : "scale(1)",
+                      transition: "transform .18s ease",
+                    }}
+                  >
+                    <strong
+                      style={{
+                        display: "block",
+                        minHeight: "43px",
+                        fontSize: "17px",
+                      }}
+                    >
+                      Kendi Sandviçini Yap
+                    </strong>
+
+                    <strong
+                      style={{
+                        color: "#174d38",
+                        fontSize: "18px",
+                      }}
+                    >
+                      Fiyatı Elle Gir
+                    </strong>
+                  </button>
+                )}
+
                 {filtrelenmisUrunler.map(
                   (urun) => (
                     <button
@@ -3663,6 +3753,100 @@ export default function Satislar() {
             marginTop: "22px",
           }}
         >
+          <h2 style={{ margin: "0 0 15px", color: "#174d38" }}>
+            Bugünkü Satışlar
+          </h2>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
+              gap: "10px",
+              marginBottom: "16px",
+            }}
+          >
+            {[
+              ["Toplam Ciro", para(bugunkuOzet.toplam)],
+              ["Satış Sayısı", String(bugunkuIslemler.length)],
+              ["Ürün Adedi", String(bugunkuOzet.urunAdedi)],
+              ["Kart", para(bugunkuOzet.kart)],
+              ["Nakit", para(bugunkuOzet.nakit)],
+            ].map(([baslik, deger]) => (
+              <div
+                key={baslik}
+                style={{
+                  padding: "13px",
+                  borderRadius: "12px",
+                  background: "#f7f9f8",
+                  border: "1px solid #d8dfdb",
+                }}
+              >
+                <small style={{ color: "#6b7280" }}>{baslik}</small>
+                <strong
+                  style={{
+                    display: "block",
+                    marginTop: "5px",
+                    color: "#174d38",
+                    fontSize: "18px",
+                  }}
+                >
+                  {deger}
+                </strong>
+              </div>
+            ))}
+          </div>
+
+          {bugunkuIslemler.length === 0 ? (
+            <p style={{ color: "#6b7280" }}>Bugün henüz satış yok.</p>
+          ) : (
+            <div>
+              {bugunkuIslemler.map((islem) => (
+                <div
+                  key={islem.islemId}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: "14px",
+                    padding: "12px 0",
+                    borderTop: "1px solid #e5e7eb",
+                  }}
+                >
+                  <div>
+                    <strong>
+                      {new Intl.DateTimeFormat("tr-TR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }).format(new Date(islem.islemId))}
+                      {islem.adisyon ? ` · ${islem.adisyon}` : ""}
+                    </strong>
+                    <small
+                      style={{
+                        display: "block",
+                        marginTop: "4px",
+                        color: "#6b7280",
+                      }}
+                    >
+                      {islem.urunler
+                        .map((urun) => `${urun.urun} x${urun.adet}`)
+                        .join(" · ")} · {islem.odemeTipi}
+                    </small>
+                  </div>
+                  <strong style={{ color: "#174d38", flexShrink: 0 }}>
+                    {para(islem.toplam)}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section
+          style={{
+            ...kartStili,
+            marginTop: "22px",
+          }}
+        >
           <details>
             <summary
               style={{
@@ -3859,7 +4043,9 @@ export default function Satislar() {
             </h2>
 
             <p style={{ margin: "0 0 13px", color: "#6b7280" }}>
-              Menü fiyatı: {para(Number(secilenUrun.satisFiyati || 0))}
+              {secilenUrun.id === kendiSandviciniYap.id
+                ? "Bu sandviçin fiyatını her satışta elle girin."
+                : `Menü fiyatı: ${para(Number(secilenUrun.satisFiyati || 0))}`}
             </p>
 
             <div style={{ marginBottom: "17px" }}>
@@ -3869,7 +4055,7 @@ export default function Satislar() {
 
               <input
                 type="number"
-                min="0"
+                min={secilenUrun.id === kendiSandviciniYap.id ? "0.01" : "0"}
                 step="0.01"
                 value={secimFiyat}
                 onChange={(event) =>
@@ -3888,7 +4074,9 @@ export default function Satislar() {
                   color: "#6b7280",
                 }}
               >
-                İndirim veya özel fiyat girebilirsin; menü fiyatı değişmez.
+                {secilenUrun.id === kendiSandviciniYap.id
+                  ? "Fiyat girilmeden sepete eklenemez."
+                  : "İndirim veya özel fiyat girebilirsin; menü fiyatı değişmez."}
               </small>
             </div>
 
