@@ -645,6 +645,7 @@ export default function Home() {
                 <div
                   key={kart.baslik}
                   style={{
+                    position: "relative",
                     minHeight: "112px",
                     padding: "17px",
                     borderRadius: "17px",
@@ -654,6 +655,10 @@ export default function Home() {
                       "1px solid rgba(0,0,0,.06)",
                     boxShadow:
                       "0 7px 18px rgba(23,77,56,.06)",
+                    cursor:
+                      kart.baslik === "Satış Sayısı"
+                        ? "pointer"
+                        : "default",
                   }}
                 >
                   <small
@@ -689,6 +694,18 @@ export default function Home() {
                     >
                       {kart.altMetin}
                     </small>
+                  )}
+
+                  {kart.baslik === "Satış Sayısı" && (
+                    <Link
+                      href="/satis#bugunku-satislar"
+                      aria-label="Bugünkü satış özetini aç"
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        borderRadius: "17px",
+                      }}
+                    />
                   )}
                 </div>
               )
